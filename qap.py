@@ -85,6 +85,34 @@ class Program:
         self.gates.append((xs, [(o, 1)], xs))
         self.gates.append((xs, [(i, 1)], [(o, 1)]))
         return o
+    def BIN(self, e, xs, L): # return binary representation of xs (L bits) (experiemental)
+        bs = []
+        closure = lambda I: lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q >> I & 1
+        for I in range(L):
+            i = self.__bind(closure(I))
+            self.gates.append(([(i, 1)], [(i, 1)], [(i, 1)]))
+            bs.append((i, 1 << I))
+        self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == sum(witness[i] * m for i, m in bs) * witness[e] % Q)
+        self.gates.append((bs, [(e, 1)], xs))
+        return bs
+    def AND(self, e, a, b, a_flip = False, b_flip = False): # return (a ^ a_flip) & (b ^ b_flip)
+        xs = [(a, -1), (e, 1)] if a_flip else [(a, 1)]
+        ys = [(b, -1), (e, 1)] if b_flip else [(b, 1)]
+        zs = [(0, 1)]
+        (_, N), *zs = zs
+        return self.VMUL(xs, ys, zs, N)
+    def OR(self, e, a, b, a_flip = False, b_flip = False): # return (a ^ a_flip) | (b ^ b_flip)
+        xs = [(a, 1)] if a_flip else [(a, -1), (e, 1)]
+        ys = [(b, 1)] if b_flip else [(b, -1), (e, 1)]
+        zs = [(0, -1), (e, 1)]
+        (_, N), *zs = zs
+        return self.VMUL(xs, ys, zs, N)
+    def XOR(self, e, a, b, c_flip = False): # return (a ^ b) ^ c_flip
+        xs = [(a, 2), (e, -1)]
+        ys = [(b, 2), (e, -1)]
+        zs = [(0, 2), (e, -1)] if c_flip else [(0, -2), (e, 1)]
+        (_, N), *zs = zs
+        return self.VDIV(xs, ys, zs, N)
     def COND(self, e, c, t, f): # return if c then t else f (c should be 0 or 1)
         t = self.VMUL([(t, 1)], [(c, 1)])
         f = self.VMUL([(f, 1)], [(c, 1), (e, -1)])
@@ -104,11 +132,13 @@ if __name__ == '__main__':
     print('GF({})'.format(Q))
     # Example Program
     qap = Program()
-    x = qap.VAR('x') # x
     e = qap.VAR('e') # 1
-    y = qap.MUL(x, x) # y = x * x
-    z = qap.VMUL([(y, 1), (e, 1)], [(x, 1)]) # z = (y + 1) * x
-    w = qap.VMUL([(z, 1), (e, 5)], [(e, 1)]) # w = (z + 5) * 1
+    x = qap.VAR('x') # x
+    y = qap.VAR('y') # y
+    xs = qap.BIN(e, [(x, 1)], 4) # xs = binary(x, 4)
+    ys = qap.BIN(e, [(y, 1)], 4) # ys = binary(y, 4)
+    zs = [(qap.XOR(e, a, b), 1 << i) for i, ((a, _), (b, _)) in enumerate(zip(xs, ys))] # zs = xs ^ ys
+    z = qap.VMUL(zs, [(e, 1)]) # z = sum(zs) * e
     # Compile
     A, B, C = qap.R1CS()
     Z = poly(qap.gate_count())
@@ -117,7 +147,7 @@ if __name__ == '__main__':
     C_polys = convert(C)
     print('Z =', Z)
     # Prove
-    s = qap.witness(x = 3, e = 1)
+    s = qap.witness(e = 1, x = 3, y = 5)
     print('s =', s)
     a = dot(A_polys, s)
     b = dot(B_polys, s)
