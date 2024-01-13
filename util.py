@@ -139,8 +139,8 @@ def tonelli(n, p):
     q, s = p - 1, 0
     while q & 1 == 0:
         q, s = q >> 1, s + 1
-    if s == 1:
-        return pow(n, (p + 1) // 4, p)
+    # if s == 1:
+    #     return pow(n, (p + 1) // 4, p)
     for z in range(2, p):
         if (pow(z, (p - 1) // 2, p) + 1) % p - 1 == -1:
             break
@@ -160,3 +160,26 @@ def tonelli(n, p):
         t = t * c % p
         r = r * b % p
     return r
+def adleman(n, p):
+    assert chkPrime(p) and p != 2
+    assert (pow(n, (p - 1) // 2, p) + 1) % p - 1 != -1
+    s, t = p - 1, 0
+    while s & 1 == 0:
+        s, t = s >> 1, t + 1
+    # if t == 1:
+    #     return pow(n, (p + 1) // 4, p)
+    for z in range(2, p):
+        if (pow(z, (p - 1) // 2, p) + 1) % p - 1 == -1:
+            break
+    h = pow(n, (s + 1) // 2, p)
+    a = pow(z, s, p)
+    b = pow(n, s, p)
+    for i in range(1, t):
+        d = pow(b, 1 << t - i - 1, p)
+        if d == 1:
+            a = a * a % p
+        else:
+            h = h * a % p
+            a = a * a % p
+            b = b * a % p
+    return h

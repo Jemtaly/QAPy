@@ -107,17 +107,16 @@ class Program:
         zs = [(0, -1), (e, 1)]
         (_, N), *zs = zs
         return self.VMUL(xs, ys, zs, N)
-    def XOR(self, e, a, b, c_flip = False): # return (a ^ b) ^ c_flip
+    def XOR(self, e, a, b, r_flip = False): # return (a ^ b) ^ r_flip
         xs = [(a, 2), (e, -1)]
         ys = [(b, 2), (e, -1)]
-        zs = [(0, 2), (e, -1)] if c_flip else [(0, -2), (e, 1)]
+        zs = [(0, 2), (e, -1)] if r_flip else [(0, -2), (e, 1)]
         (_, N), *zs = zs
-        return self.VDIV(xs, ys, zs, N)
-    def COND(self, e, c, t, f): # return if c then t else f (c should be 0 or 1)
-        t = self.VMUL([(t, 1)], [(c, 1)])
-        f = self.VMUL([(f, 1)], [(c, 1), (e, -1)])
-        r = self.VMUL([(e, 1)], [(t, 1), (f, -1)])
-        return r
+        return self.VMUL(xs, ys, zs, N)
+    def COND(self, c, ts, fs): # return if c then ts else fs (c should be 0 or 1)
+        ts = [(t, +n) for t, n in ts]
+        fs = [(f, -n) for f, n in fs]
+        return self.VMUL([(c, 1)], ts + fs, fs)
     def ASSERT_BOOL(self, x): # assert x == 0 or x == 1
         self.asserts.append(lambda witness, **kwargs: witness[x] ** 2 % Q == witness[x])
         self.gates.append(([(x, 1)], [(x, 1)], [(x, 1)]))
