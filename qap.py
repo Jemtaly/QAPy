@@ -95,6 +95,20 @@ class Program:
         self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == sum(witness[i] * m for i, m in bs) * witness[e] % Q)
         self.gates.append((bs, [(e, 1)], xs))
         return bs
+    def MAP(self, xs, LIST): # return xs composed with values in LIST (experiemental)
+        ks = []
+        es = []
+        closure = lambda k: lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == k
+        for K in LIST:
+            i = self.__bind(closure(K))
+            self.gates.append(([(i, 1)], [(i, 1)], [(i, 1)]))
+            ks.append((i, K))
+            es.append((i, 1))
+        self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == sum(witness[i] * m for i, m in ks) * witness[e] % Q)
+        self.asserts.append(lambda witness, **kwargs: sum(witness[i] * m for i, m in es) * sum(witness[i] * m for i, m in es) % Q == witness[e] % Q)
+        self.gates.append((ks, [(e, 1)], xs))
+        self.gates.append((es, es, [(e, 1)]))
+        return ks
     def AND(self, e, a, b, a_flip = False, b_flip = False): # return (a ^ a_flip) & (b ^ b_flip)
         xs = [(a, -1), (e, 1)] if a_flip else [(a, 1)]
         ys = [(b, -1), (e, 1)] if b_flip else [(b, 1)]
@@ -118,14 +132,14 @@ class Program:
         fs = [(f, -n) for f, n in fs]
         return self.VMUL([(c, 1)], ts + fs, fs)
     def ASSERT_BOOL(self, x): # assert x == 0 or x == 1
-        self.asserts.append(lambda witness, **kwargs: witness[x] ** 2 % Q == witness[x])
+        self.asserts.append(lambda witness, **kwargs: witness[x] * witness[x] % Q == witness[x] % Q)
         self.gates.append(([(x, 1)], [(x, 1)], [(x, 1)]))
     def ASSERT_ZERO(self, e, xs): # assert xs == 0 (mod Q)
-        self.asserts.append(lambda witness, **kwargs: (sum(witness[x] * m for x, m in xs) + witness[e]) * witness[e] % Q == witness[e])
-        self.gates.append((xs + [(e, 1)], [(e, 1)], [(e, 1)]))
+        self.asserts.append(lambda witness, **kwargs: witness[e] * witness[e] % Q == (sum(witness[x] * m for x, m in xs) + witness[e]) % Q)
+        self.gates.append(([(e, 1)], [(e, 1)], [(e, 1)] + xs))
     def ASSERT_NONZ(self, e, xs): # assert xs != 0 (mod Q)
         i = self.__bind(lambda witness, **kwargs: pow(sum(witness[x] * m for x, m in xs), Q - 2, Q) * witness[e] % Q)
-        self.asserts.append(lambda witness, **kwargs: pow(sum(witness[x] * m for x, m in xs), Q - 1, Q) * witness[e] % Q == witness[e])
+        self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) * witness[i] % Q == witness[e] % Q)
         self.gates.append((xs, [(i, 1)], [(e, 1)]))
 if __name__ == '__main__':
     print('GF({})'.format(Q))
@@ -137,7 +151,10 @@ if __name__ == '__main__':
     xs = qap.BIN(e, [(x, 1)], 4) # xs = binary(x, 4)
     ys = qap.BIN(e, [(y, 1)], 4) # ys = binary(y, 4)
     zs = [(qap.XOR(e, a, b), 1 << i) for i, ((a, _), (b, _)) in enumerate(zip(xs, ys))] # zs = xs ^ ys
-    z = qap.VMUL(zs, [(e, 1)]) # z = sum(zs) * e
+    ILST = [0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF]
+    OLST = [0x7, 0xC, 0xB, 0xD, 0xE, 0x4, 0x9, 0xF, 0x6, 0x3, 0x8, 0xA, 0x2, 0x5, 0x1, 0x0]
+    os = [(k, o) for (k, i), o in zip(qap.MAP(zs, ILST), OLST)] # os = map(zs, ILST -> OLST)
+    o = qap.VMUL(os, [(e, 1)]) # w = sum(ws)
     # Compile
     A, B, C = qap.R1CS()
     Z = poly(qap.gate_count())

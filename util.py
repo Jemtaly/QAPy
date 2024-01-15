@@ -105,23 +105,23 @@ def nsqrt(n):
         else:
             l = m
     return l
-def chkPrime(n):
+def chkPrime(n, k = 16):
     if n == 2:
         return True
     if n < 2 or n & 1 == 0:
         return False
-    s, k = n - 1, 0
+    s, t = n - 1, 0
     while s & 1 == 0:
-        s, k = s >> 1, k + 1
-    for _ in range(16):
+        s, t = s >> 1, t + 1
+    for _ in range(k):
         a = random.randrange(1, n)
-        t = pow(a, s, n)
-        if t == 1:
+        x = pow(a, s, n)
+        if x == 1:
             continue
-        for _ in range(k):
-            if t == n - 1:
+        for _ in range(t):
+            if x == n - 1:
                 break
-            t = t * t % n
+            x = x * x % n
         else:
             return False
     return True
