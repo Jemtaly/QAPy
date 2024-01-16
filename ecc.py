@@ -36,20 +36,20 @@ class ECC:
             return self.inv(P)
         Q = self.dot(P, n >> 1)
         return self.add(self.add(Q, Q), P) if n & 1 else self.add(Q, Q)
+# Public Parameters (secp256k1)
+A = 0x0000000000000000000000000000000000000000000000000000000000000000
+B = 0x0000000000000000000000000000000000000000000000000000000000000007
+P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f
+N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
+X = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+Y = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8
+G = ECC(A, B, P)
+P = (X, Y)
 if __name__ == '__main__':
-    # Public Parameters (secp256k1)
-    a = 0x0000000000000000000000000000000000000000000000000000000000000000
-    b = 0x0000000000000000000000000000000000000000000000000000000000000007
-    p = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f
-    n = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
-    x = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-    y = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8
-    ecc = ECC(a, b, p)
-    G = (x, y)
     # Alice's Private Key
-    u = random.randrange(1, n)
-    U = ecc.dot(G, u)
+    u = random.randrange(1, N)
+    U = G.dot(P, u)
     # Bob's Private Key
-    v = random.randrange(1, n)
-    V = ecc.dot(G, v)
-    assert ecc.dot(U, v) == ecc.dot(V, u) # Shared Secret
+    v = random.randrange(1, N)
+    V = G.dot(P, v)
+    assert G.dot(U, v) == G.dot(V, u) # Shared Secret

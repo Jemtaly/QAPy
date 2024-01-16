@@ -34,8 +34,6 @@ def crt(D):
         R += (r - R) // d * N * M
         M *= m // d
     return R % M, M
-def polyval(coeffs, x, q):
-    return sum(c * x ** i for i, c in enumerate(coeffs)) % q
 def rref(m, h, w, q): # reduced row echelon form
     for J in range(w):
         I = next((I for I in range(h) if all(m[I][j] == 0 for j in range(J)) and m[I][J] != 0), None)
@@ -96,6 +94,10 @@ def polydm(a, b, m):
         q.append(t)
         r.pop(0)
     return q[::-1], r[::-1]
+def polyshow(coeffs):
+    return ' + '.join('{} * x ** {}'.format(c, i) for i, c in enumerate(coeffs) if c != 0) or '0'
+def polyval(coeffs, x, q):
+    return sum(c * x ** i for i, c in enumerate(coeffs)) % q
 def nsqrt(n):
     l, r = 0, n + 1
     while r - l > 1:

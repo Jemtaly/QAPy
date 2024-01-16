@@ -1,20 +1,6 @@
 #!/usr/bin/python3
 import util
 Q = util.genPrime(16)
-def poly(n):
-    # generate polynomial Z = (x - 1) * (x - 2) * ... * (x - n)
-    Z = [1]
-    for i in range(1, n + 1):
-        Z = [(v - i * u) % Q for u, v in zip(Z + [0], [0] + Z)]
-    return Z
-def convert(mat):
-    # convert matrix in R1CS form to list of polynomials in QAP form
-    # input an n * m matrix, output a list of m polynomials of degree n - 1
-    # time complexity: O(n * m ** 2)
-    return [util.lagrange(list(enumerate(col, 1)), Q) for col in zip(*mat)]
-def dot(polys, s):
-    # calculate dot product of list of polynomials and vector
-    return [sum(i * j for i, j in zip(u, s)) % Q for u in zip(*polys)]
 class Program:
     def __init__(self):
         self.gates = []
@@ -95,20 +81,20 @@ class Program:
         self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == sum(witness[i] * m for i, m in bs) * witness[e] % Q)
         self.gates.append((bs, [(e, 1)], xs))
         return bs
-    def MAP(self, xs, LIST): # return xs composed with values in LIST (experiemental)
-        ks = []
+    def DEC(self, xs, LIST): # return decoding of xs (LIST is a list of possible values) (experiemental)
+        ds = []
         es = []
-        closure = lambda k: lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == k
-        for K in LIST:
-            i = self.__bind(closure(K))
+        closure = lambda V: lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == V
+        for V in LIST:
+            i = self.__bind(closure(V))
             self.gates.append(([(i, 1)], [(i, 1)], [(i, 1)]))
-            ks.append((i, K))
+            ds.append((i, V))
             es.append((i, 1))
-        self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == sum(witness[i] * m for i, m in ks) * witness[e] % Q)
+        self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) % Q == sum(witness[i] * m for i, m in ds) * witness[e] % Q)
         self.asserts.append(lambda witness, **kwargs: sum(witness[i] * m for i, m in es) * sum(witness[i] * m for i, m in es) % Q == witness[e] % Q)
-        self.gates.append((ks, [(e, 1)], xs))
+        self.gates.append((ds, [(e, 1)], xs))
         self.gates.append((es, es, [(e, 1)]))
-        return ks
+        return ds
     def AND(self, e, a, b, a_flip = False, b_flip = False): # return (a ^ a_flip) & (b ^ b_flip)
         xs = [(a, -1), (e, 1)] if a_flip else [(a, 1)]
         ys = [(b, -1), (e, 1)] if b_flip else [(b, 1)]
@@ -121,7 +107,7 @@ class Program:
         zs = [(0, -1), (e, 1)]
         (_, N), *zs = zs
         return self.VMUL(xs, ys, zs, N)
-    def XOR(self, e, a, b, r_flip = False): # return (a ^ b) ^ r_flip
+    def XOR(self, e, a, b, r_flip = False): # return a ^ b ^ r_flip
         xs = [(a, 2), (e, -1)]
         ys = [(b, 2), (e, -1)]
         zs = [(0, 2), (e, -1)] if r_flip else [(0, -2), (e, 1)]
@@ -141,38 +127,53 @@ class Program:
         i = self.__bind(lambda witness, **kwargs: pow(sum(witness[x] * m for x, m in xs), Q - 2, Q) * witness[e] % Q)
         self.asserts.append(lambda witness, **kwargs: sum(witness[x] * m for x, m in xs) * witness[i] % Q == witness[e] % Q)
         self.gates.append((xs, [(i, 1)], [(e, 1)]))
+def prod(s):
+    # generate polynomial t(x) = prod(x - k) for k in s
+    t = [1]
+    for k in s:
+        t = [(v - k * u) % Q for u, v in zip(t + [0], [0] + t)]
+    return t
+def convert(mat, s):
+    # convert matrix in R1CS form to list of polynomials in QAP form
+    # input an n * m matrix, output a list of m polynomials of degree n - 1
+    # time complexity: O(n * m ** 2)
+    return [util.lagrange(list(zip(s, col)), Q) for col in zip(*mat)]
+def dot(polys, w):
+    # calculate dot product of list of polynomials and vector
+    return [sum(i * j for i, j in zip(u, w)) % Q for u in zip(*polys)]
 if __name__ == '__main__':
     print('GF({})'.format(Q))
     # Example Program
-    qap = Program()
-    e = qap.VAR('e') # 1
-    x = qap.VAR('x') # x
-    y = qap.VAR('y') # y
-    xs = qap.BIN(e, [(x, 1)], 4) # xs = binary(x, 4)
-    ys = qap.BIN(e, [(y, 1)], 4) # ys = binary(y, 4)
-    zs = [(qap.XOR(e, a, b), 1 << i) for i, ((a, _), (b, _)) in enumerate(zip(xs, ys))] # zs = xs ^ ys
+    pro = Program()
+    e = pro.VAR('e') # 1
+    x = pro.VAR('x') # x
+    y = pro.VAR('y') # y
+    xs = pro.BIN(e, [(x, 1)], 4) # xs = binary(x, 4)
+    ys = pro.BIN(e, [(y, 1)], 4) # ys = binary(y, 4)
+    zs = [(pro.XOR(e, a, b), 1 << i) for i, ((a, _), (b, _)) in enumerate(zip(xs, ys))] # zs = xs ^ ys
     ILST = [0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF]
     OLST = [0x7, 0xC, 0xB, 0xD, 0xE, 0x4, 0x9, 0xF, 0x6, 0x3, 0x8, 0xA, 0x2, 0x5, 0x1, 0x0]
-    os = [(k, o) for (k, i), o in zip(qap.MAP(zs, ILST), OLST)] # os = map(zs, ILST -> OLST)
-    o = qap.VMUL(os, [(e, 1)]) # w = sum(ws)
+    os = [(k, o) for (k, i), o in zip(pro.DEC(zs, ILST), OLST)] # os = map(zs, ILST -> OLST)
+    o = pro.VMUL(os, [(e, 1)]) # w = sum(ws)
     # Compile
-    A, B, C = qap.R1CS()
-    Z = poly(qap.gate_count())
-    A_polys = convert(A)
-    B_polys = convert(B)
-    C_polys = convert(C)
-    print('Z =', Z)
+    A, B, C = pro.R1CS() # A, B, C matrices
+    s = util.sample(1, Q, pro.gate_count())
+    t = prod(s)
+    A = convert(A, s) # A polynomials set
+    B = convert(B, s) # B polynomials set
+    C = convert(C, s) # C polynomials set
+    print('t(x) =', util.polyshow(t))
     # Prove
-    s = qap.witness(e = 1, x = 3, y = 5)
-    print('s =', s)
-    a = dot(A_polys, s)
-    b = dot(B_polys, s)
-    c = dot(C_polys, s)
-    t = util.polysub(util.polymul(a, b, Q), c, Q)
-    print('A . s =', a)
-    print('B . s =', b)
-    print('C . s =', c)
-    print('t =', t)
-    H, r = util.polydm(t, Z, Q)
-    print('H =', H)
-    print('r =', r)
+    w = pro.witness(e = 1, x = 3, y = 5)
+    print('witness =', w)
+    a = dot(A, w)
+    b = dot(B, w)
+    c = dot(C, w)
+    print('a(x) =', util.polyshow(a))
+    print('b(x) =', util.polyshow(b))
+    print('c(x) =', util.polyshow(c))
+    d = util.polysub(util.polymul(a, b, Q), c, Q)
+    print('d(x) =', util.polyshow(d))
+    q, r = util.polydm(d, t, Q)
+    print('q(x) =', util.polyshow(q))
+    print('r(x) =', util.polyshow(r))
