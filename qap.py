@@ -28,18 +28,18 @@ class Program:
         B = [[0 for _ in range(var_count)] for _ in range(gate_count)]
         C = [[0 for _ in range(var_count)] for _ in range(gate_count)]
         for i, gate in enumerate(self.gates):
-            x, y, z = gate
-            for k, v in x:
+            al, bl, cl = gate
+            for k, v in al:
                 A[i][k] += v
-            for k, v in y:
+            for k, v in bl:
                 B[i][k] += v
-            for k, v in z:
+            for k, v in cl:
                 C[i][k] += v
         return A, B, C
     def witness(self, **kwargs):
         var_count = self.var_count()
         witness = [0 for _ in range(var_count)]
-        get = lambda x: sum(witness[k] * v for k, v in x) % Q
+        get = lambda xl: sum(witness[k] * v for k, v in xl) % Q
         for i, func in enumerate(self.vars):
             witness[i] = func(get, **kwargs)
         for func in self.asserts:
@@ -147,8 +147,8 @@ def prod(s):
     return t
 def convert(mat, s):
     # convert matrix in R1CS form to list of polynomials in QAP form
-    # input an n * m matrix, output a list of m polynomials of degree n - 1
-    # time complexity: O(n * m ** 2)
+    # input an M * N matrix, output a list of N polynomials of degree M - 1
+    # time complexity: O(M ** 2 * N)
     return [util.lagrange(list(zip(s, col)), Q) for col in zip(*mat)]
 def dot(polys, w):
     # calculate dot product of list of polynomials and vector
@@ -184,12 +184,12 @@ if __name__ == '__main__':
     ob = [pair for (a, i), (b, i) in zip(fb, gb) for pair in pro.MULN(pro.XOR(el, [(a, 1)], [(b, 1)]), i)] # ob = fb ^ gb
     ol = pro.RET(ob) # ol = reveal(ob)
     # Compile
-    print('Gates:', pro.gate_count())
-    print('Vars:', pro.var_count())
+    print('Gates:', M := pro.gate_count())
+    print('Vars:', N := pro.var_count())
     with Timer('Generating R1CS...'):
         A, B, C = pro.R1CS() # A, B, C matrices
     with Timer('Converting to QAP...'):
-        s = util.sample(1, Q, pro.gate_count())
+        s = util.sample(1, Q, M)
         t = prod(s)
         A = convert(A, s) # A polynomials set
         B = convert(B, s) # B polynomials set
