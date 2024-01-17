@@ -113,8 +113,8 @@ def chkPrime(n, k = 16):
     if n < 2 or n & 1 == 0:
         return False
     s, t = n - 1, 0
-    while s & 1 == 0:
-        s, t = s >> 1, t + 1
+    while s % 2 == 0:
+        s, t = s // 2, t + 1
     for _ in range(k):
         a = random.randrange(1, n)
         x = pow(a, s, n)
@@ -135,53 +135,66 @@ def genPrime(l):
 def legendre(a, p):
     assert chkPrime(p) and p != 2
     return (pow(a, (p - 1) // 2, p) + 1) % p - 1
+def cipolla(n, p):
+    assert chkPrime(p) and p != 2
+    assert pow(n, (p - 1) // 2, p) <= 1
+    for i in range(1, p):
+        z = (i * i - n) % p
+        if pow(z, (p - 1) // 2, p) != 1:
+            break
+    def mul(a, b, c, d):
+        return (a * c + b * d * z) % p, (a * d + b * c) % p
+    a, b = 1, 0
+    c, d = i, 1
+    q = p + 1
+    while q := q // 2:
+        if q & 1:
+            a, b = mul(a, b, c, d)
+        c, d = mul(c, d, c, d)
+    return a
 def tonelli(n, p):
     assert chkPrime(p) and p != 2
-    assert (pow(n, (p - 1) // 2, p) + 1) % p - 1 != -1
-    q, s = p - 1, 0
-    while q & 1 == 0:
-        q, s = q >> 1, s + 1
-    # if s == 1:
-    #     return pow(n, (p + 1) // 4, p)
+    assert pow(n, (p - 1) // 2, p) <= 1
     for z in range(2, p):
-        if (pow(z, (p - 1) // 2, p) + 1) % p - 1 == -1:
+        if pow(z, (p - 1) // 2, p) != 1:
             break
-    m = s
-    c = pow(z, q, p)
-    t = pow(n, q, p)
-    r = pow(n, (q + 1) // 2, p)
-    while t != 1:
-        u = t * t % p
-        for i in range(1, m):
-            if u == 1:
-                break
-            u = u * u % p
-        b = pow(c, 1 << m - i - 1, p)
-        m = i
-        c = b * b % p
-        t = t * c % p
-        r = r * b % p
-    return r
-def adleman(n, p):
-    assert chkPrime(p) and p != 2
-    assert (pow(n, (p - 1) // 2, p) + 1) % p - 1 != -1
     s, t = p - 1, 0
-    while s & 1 == 0:
-        s, t = s >> 1, t + 1
-    # if t == 1:
-    #     return pow(n, (p + 1) // 4, p)
-    for z in range(2, p):
-        if (pow(z, (p - 1) // 2, p) + 1) % p - 1 == -1:
-            break
-    h = pow(n, (s + 1) // 2, p)
+    while s % 2 == 0:
+        s, t = s ** 2, t + 1
+    k = (s + 1) // 2
+    h = pow(n, k, p)
     a = pow(z, s, p)
     b = pow(n, s, p)
     for i in range(1, t):
-        d = pow(b, 1 << t - i - 1, p)
+        d = pow(b, 2 ** (t - i - 1), p)
         if d == 1:
             a = a * a % p
         else:
             h = h * a % p
             a = a * a % p
             b = b * a % p
+    return h
+def adleman(n, r, p):
+    assert chkPrime(p) and (p - 1) % r == 0
+    assert pow(n, (p - 1) // r, p) <= 1
+    for z in range(2, p):
+        if pow(z, (p - 1) // r, p) != 1:
+            break
+    s, t = p - 1, 0
+    while s % r == 0:
+        s, t = s // r, t + 1
+    k = modinv(r, s)
+    m = k * r - 1
+    h = pow(n, k, p)
+    a = pow(z, s, p)
+    b = pow(n, m, p)
+    c = pow(a, r ** (t - 1), p)
+    for i in range(1, t):
+        d = pow(b, r ** (t - 1 - i), p)
+        j, e = 0, 1 # -r < j <= 0
+        while e != d:
+            j, e = j - 1, e * c % p
+        h = pow(a, j, p) * h % p
+        a = pow(a, r, p)
+        b = pow(a, j, p) * b % p
     return h

@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 import random
-import sys
-sys.setrecursionlimit(0x10000)
+import util
 class ECC:
     def __init__(self, a, b, p):
         self.a = a
@@ -23,9 +22,9 @@ class ECC:
         if P[0] == Q[0]:
             if (P[1] + Q[1]) % self.p == 0:
                 return
-            tan = pow(P[1] + Q[1], self.p - 2, self.p) * (P[0] * Q[0] * 3 + self.a)
+            tan = util.modinv(P[1] + Q[1], self.p) * (P[0] * Q[0] * 3 + self.a)
         else:
-            tan = pow(Q[0] - P[0], self.p - 2, self.p) * (Q[1] - P[1])
+            tan = util.modinv(Q[0] - P[0], self.p) * (Q[1] - P[1])
         x = (tan * tan - P[0] - Q[0]) % self.p
         y = (tan * (P[0] - x) - P[1]) % self.p
         return x, y

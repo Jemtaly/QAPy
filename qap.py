@@ -1,6 +1,6 @@
 #!/usr/bin/python3
-import util
 import time
+import util
 Q = util.genPrime(16)
 class Timer:
     def __init__(self, text):
@@ -53,7 +53,7 @@ class Program:
         return i
     def VAR(self, name, reveal = False): # return a variable
         return [(self.__bind(lambda get, **kwargs: kwargs[name], reveal), 1)]
-    def RET(self, al): # reveal the value of a variable
+    def REVEAL(self, al): # reveal the value of a variable
         cl = [(self.__bind(lambda get, **kwargs: get(al), True), 1)]
         self.gates.append(([], [], self.SUB(cl, al)))
         return cl
@@ -74,7 +74,7 @@ class Program:
         self.gates.append((al, bl, cl))
         return al
     def SQRT(self, al): # return a ** (1 / 2) (mod Q)
-        xl = [(self.__bind(lambda get, **kwargs: util.adleman(get(al), Q)), 1)]
+        xl = [(self.__bind(lambda get, **kwargs: util.tonelli(get(al), Q)), 1)]
         self.gates.append((xl, xl, al))
         return xl
     def POW(self, el, al, N): # return a ** N (mod Q)
@@ -129,7 +129,7 @@ class Program:
     def XOR(self, el, al, bl): # return a ^ b
         return self.DIVN(self.SUB(el, self.MUL(self.SUB(el, self.MULN(al, 2)), self.SUB(el, self.MULN(bl, 2)))), 2)
     def COND(self, cl, tl, fl): # return if c then t else f (c should be 0 or 1)
-        return self.MUL(cl, self.SUB(tl, fl)) + fl
+        return self.ADD(self.MUL(cl, self.SUB(tl, fl)), fl)
     def ASSERT(self, xl, yl, zl): # assert x * y == z (mod Q)
         self.asserts.append(lambda get, **kwargs: get(xl) * get(yl) % Q == get(zl))
         self.gates.append((xl, yl, zl))
@@ -182,8 +182,7 @@ if __name__ == '__main__':
     fb = pro.BIN(el, fl, 6) # fb = binary(fs, 6)
     gb = pro.BIN(el, gl, 6) # gb = binary(gs, 6)
     ob = [pair for (a, i), (b, i) in zip(fb, gb) for pair in pro.MULN(pro.XOR(el, [(a, 1)], [(b, 1)]), i)] # ob = fb ^ gb
-    ol = pro.RET(ob) # ol = reveal(ob)
-    # Compile
+    ol = pro.REVEAL(ob) # ol = reveal(ob)
     print('Gates:', M := pro.gate_count())
     print('Vars:', N := pro.var_count())
     with Timer('Generating R1CS...'):
@@ -194,7 +193,6 @@ if __name__ == '__main__':
         A = convert(A, s) # A polynomials set
         B = convert(B, s) # B polynomials set
         C = convert(C, s) # C polynomials set
-    # Prove
     with Timer('Calculating witness...'):
         w = pro.witness(e = 1, i = 48)
     print('witness =', w)
@@ -206,11 +204,11 @@ if __name__ == '__main__':
         q, r = util.polydm(d, t, Q)
     if any(r):
         print('Verification failed!')
-        print('t(x) =', util.polyshow(t))
         print('a(x) =', util.polyshow(a))
         print('b(x) =', util.polyshow(b))
         print('c(x) =', util.polyshow(c))
         print('d(x) =', util.polyshow(d))
+        print('t(x) =', util.polyshow(t))
         print('q(x) =', util.polyshow(q))
         print('r(x) =', util.polyshow(r))
     else:
