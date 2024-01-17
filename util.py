@@ -132,11 +132,11 @@ def genPrime(l):
         r = random.randrange(1 << l - 1, 1 << l)
         if chkPrime(r):
             return r
-def legendre(a, p):
-    assert chkPrime(p) and p != 2
-    return (pow(a, (p - 1) // 2, p) + 1) % p - 1
+def legendre(n, p, r = 2):
+    assert chkPrime(p) and p % r == 1
+    return pow(n, (p - 1) // r, p)
 def cipolla(n, p):
-    assert chkPrime(p) and p != 2
+    assert chkPrime(p) and p % 2 == 1
     assert pow(n, (p - 1) // 2, p) <= 1
     for i in range(1, p):
         z = (i * i - n) % p
@@ -153,14 +153,14 @@ def cipolla(n, p):
         c, d = mul(c, d, c, d)
     return a
 def tonelli(n, p):
-    assert chkPrime(p) and p != 2
+    assert chkPrime(p) and p % 2 == 1
     assert pow(n, (p - 1) // 2, p) <= 1
     for z in range(2, p):
         if pow(z, (p - 1) // 2, p) != 1:
             break
     s, t = p - 1, 0
     while s % 2 == 0:
-        s, t = s ** 2, t + 1
+        s, t = s // 2, t + 1
     k = (s + 1) // 2
     h = pow(n, k, p)
     a = pow(z, s, p)
@@ -175,7 +175,7 @@ def tonelli(n, p):
             b = b * a % p
     return h
 def adleman(n, r, p):
-    assert chkPrime(p) and (p - 1) % r == 0
+    assert chkPrime(p) and p % r == 1
     assert pow(n, (p - 1) // r, p) <= 1
     for z in range(2, p):
         if pow(z, (p - 1) // r, p) != 1:
@@ -198,3 +198,14 @@ def adleman(n, r, p):
         a = pow(a, r, p)
         b = pow(a, j, p) * b % p
     return h
+def rthroot(n, r, p):
+    assert chkPrime(p)
+    r, (i, _) = exgcd(r, p - 1)
+    n = pow(n, i, p)
+    while r > 1:
+        q = 2
+        while r % q != 0:
+            q += 1
+        r = r // q
+        n = adleman(n, q, p)
+    return n
