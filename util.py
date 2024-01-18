@@ -132,9 +132,9 @@ def genprime(l):
         r = random.randrange(1 << l - 1, 1 << l)
         if chkprime(r):
             return r
-def legendre(n, p, r = 2):
-    assert chkprime(p) and (p - 1) % r == 0
-    return pow(n, (p - 1) // r, p)
+def legendre(n, p, q = 2):
+    assert chkprime(p) and (p - 1) % q == 0
+    return pow(n, (p - 1) // q, p)
 def cipolla(n, p):
     assert chkprime(p) and (p - 1) % 2 == 0
     assert pow(n, (p - 1) // 2, p) <= 1
@@ -174,38 +174,91 @@ def tonelli(n, p):
             a = a * a % p
             b = b * a % p
     return h
-def adleman(n, r, p):
-    assert chkprime(p) and (p - 1) % r == 0
-    assert pow(n, (p - 1) // r, p) <= 1
+def adleman(n, q, p): # q-th root of n (q | p - 1 and q is prime)
+    assert chkprime(p) and (p - 1) % q == 0
+    assert pow(n, (p - 1) // q, p) <= 1
     for z in range(2, p):
-        if pow(z, (p - 1) // r, p) != 1:
+        if pow(z, (p - 1) // q, p) != 1:
             break
     s, t = p - 1, 0
-    while s % r == 0:
-        s, t = s // r, t + 1
-    k = modinv(r, s)
-    m = k * r - 1
-    h = pow(n, k, p)
+    while s % q == 0:
+        s, t = s // q, t + 1
+    u = modinv(q, s)
+    m = u * q - 1
+    h = pow(n, u, p)
     a = pow(z, s, p)
     b = pow(n, m, p)
-    c = pow(a, r ** (t - 1), p)
+    c = pow(a, q ** (t - 1), p)
     for i in range(1, t):
-        d = pow(b, r ** (t - 1 - i), p)
-        j, e = 0, 1 # -r < j <= 0
+        d = pow(b, q ** (t - 1 - i), p)
+        j, e = 0, 1
         while e != d:
             j, e = j - 1, e * c % p
         h = pow(a, j, p) * h % p
-        a = pow(a, r, p)
+        a = pow(a, q, p)
         b = pow(a, j, p) * b % p
     return h
-def rthroot(n, r, p):
+def kthroot(n, k, p): # k-th root of n
     assert chkprime(p)
-    r, (i, _) = exgcd(r, p - 1)
+    k, (i, _) = exgcd(k, p - 1)
     n = pow(n, i, p)
-    e = 2
-    while r > 1:
-        while r % e == 0:
-            r = r // e
-            n = adleman(n, e, p)
-        e = e + 1
+    q = 2
+    while k > 1:
+        while k % q == 0:
+            k = k // q
+            n = adleman(n, q, p)
+        q = q + 1
     return n
+def genroot(k, p): # k-th root of unity
+    assert chkprime(p) and (p - 1) % k == 0
+    r = 1
+    q = 2
+    while k > 1:
+        x = 0
+        while k % q == 0:
+            k, x = k // q, x + 1
+        if x > 0:
+            for z in range(2, p):
+                if pow(z, (p - 1) // q, p) != 1:
+                    break
+            r = pow(z, (p - 1) // q ** x, p) * r % p
+        q = q + 1
+    return r
+def rootset(n, k, p):
+    assert chkprime(p)
+    k, (i, _) = exgcd(k, p - 1)
+    n = pow(n, i, p)
+    assert pow(n, (p - 1) // k, p) <= 1
+    r = 1
+    q = 2
+    K = k
+    while k > 1:
+        x = 0
+        while k % q == 0:
+            k, x = k // q, x + 1
+        if x > 0:
+            for z in range(2, p):
+                if pow(z, (p - 1) // q, p) != 1:
+                    break
+            s, t = p - 1, 0
+            while s % q == 0:
+                s, t = s // q, t + 1
+            for _ in range(x):
+                u = modinv(q, s)
+                m = u * q - 1
+                h = pow(n, u, p)
+                a = pow(z, s, p)
+                b = pow(n, m, p)
+                c = pow(a, q ** (t - 1), p)
+                for i in range(1, t):
+                    d = pow(b, q ** (t - 1 - i), p)
+                    j, e = 0, 1
+                    while e != d:
+                        j, e = j - 1, e * c % p
+                    h = pow(a, j, p) * h % p
+                    a = pow(a, q, p)
+                    b = pow(a, j, p) * b % p
+                n = h
+            r = pow(z, (p - 1) // q ** x, p) * r % p
+        q = q + 1
+    return {n * pow(r, i, p) % p for i in range(K)}
