@@ -107,10 +107,10 @@ def nsqrt(n):
         else:
             l = m
     return l
-def chkPrime(n, k = 16):
+def chkprime(n, k = 16):
     if n == 2:
         return True
-    if n < 2 or n & 1 == 0:
+    if n < 2 or n % 2 == 0:
         return False
     s, t = n - 1, 0
     while s % 2 == 0:
@@ -127,18 +127,18 @@ def chkPrime(n, k = 16):
         else:
             return False
     return True
-def genPrime(l):
+def genprime(l):
     while True:
         r = random.randrange(1 << l - 1, 1 << l)
-        if chkPrime(r):
+        if chkprime(r):
             return r
 def legendre(n, p, r = 2):
-    assert chkPrime(p) and p % r == 1
+    assert chkprime(p) and (p - 1) % r == 0
     return pow(n, (p - 1) // r, p)
 def cipolla(n, p):
-    assert chkPrime(p) and p % 2 == 1
+    assert chkprime(p) and (p - 1) % 2 == 0
     assert pow(n, (p - 1) // 2, p) <= 1
-    for i in range(1, p):
+    for i in range(0, p):
         z = (i * i - n) % p
         if pow(z, (p - 1) // 2, p) != 1:
             break
@@ -148,12 +148,12 @@ def cipolla(n, p):
     c, d = i, 1
     q = p + 1
     while q := q // 2:
-        if q & 1:
+        if q % 2 == 1:
             a, b = mul(a, b, c, d)
         c, d = mul(c, d, c, d)
     return a
 def tonelli(n, p):
-    assert chkPrime(p) and p % 2 == 1
+    assert chkprime(p) and (p - 1) % 2 == 0
     assert pow(n, (p - 1) // 2, p) <= 1
     for z in range(2, p):
         if pow(z, (p - 1) // 2, p) != 1:
@@ -175,7 +175,7 @@ def tonelli(n, p):
             b = b * a % p
     return h
 def adleman(n, r, p):
-    assert chkPrime(p) and p % r == 1
+    assert chkprime(p) and (p - 1) % r == 0
     assert pow(n, (p - 1) // r, p) <= 1
     for z in range(2, p):
         if pow(z, (p - 1) // r, p) != 1:
@@ -199,13 +199,13 @@ def adleman(n, r, p):
         b = pow(a, j, p) * b % p
     return h
 def rthroot(n, r, p):
-    assert chkPrime(p)
+    assert chkprime(p)
     r, (i, _) = exgcd(r, p - 1)
     n = pow(n, i, p)
+    e = 2
     while r > 1:
-        q = 2
-        while r % q != 0:
-            q += 1
-        r = r // q
-        n = adleman(n, q, p)
+        while r % e == 0:
+            r = r // e
+            n = adleman(n, e, p)
+        e = e + 1
     return n

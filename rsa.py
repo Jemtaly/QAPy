@@ -2,8 +2,8 @@
 import random
 import util
 def RSAGenKey(l):
-    p = util.genPrime(l)
-    q = util.genPrime(l)
+    p = util.genprime(l)
+    q = util.genprime(l)
     phi = (p - 1) * (q - 1)
     while True:
         e = random.randrange(0, phi)

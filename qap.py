@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import time
 import util
-Q = util.genPrime(16)
+Q = util.genprime(16)
 class Timer:
     def __init__(self, text):
         self.text = text
@@ -73,10 +73,6 @@ class Program:
         al = [(self.__bind(lambda get, **kwargs: get(cl) * util.modinv(get(bl), Q) % Q), 1)]
         self.gates.append((al, bl, cl))
         return al
-    def SQRT(self, al): # return a ** (1 / 2) (mod Q)
-        xl = [(self.__bind(lambda get, **kwargs: util.tonelli(get(al), Q)), 1)]
-        self.gates.append((xl, xl, al))
-        return xl
     def POW(self, el, al, N): # return a ** N (mod Q)
         if N < 0:
             N = -N
