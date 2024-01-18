@@ -132,39 +132,39 @@ def genprime(l):
         r = random.randrange(1 << l - 1, 1 << l)
         if chkprime(r):
             return r
-def legendre(δ, q, r = 2):
-    assert chkprime(q) and (q - 1) % r == 0
-    return pow(δ, (q - 1) // r, q)
-def cipolla(n, p):
+def legendre(x, p, q = 2):
+    assert chkprime(p) and (p - 1) % q == 0
+    return pow(x, (p - 1) // q, p)
+def cipolla(x, p):
     assert chkprime(p) and (p - 1) % 2 == 0
-    assert pow(n, (p - 1) // 2, p) <= 1
-    for i in range(0, p):
-        z = (i * i - n) % p
+    assert pow(x, (p - 1) // 2, p) <= 1
+    for y in range(0, p):
+        z = (y * y - x) % p
         if pow(z, (p - 1) // 2, p) != 1:
             break
     def mul(a, b, c, d):
         return (a * c + b * d * z) % p, (a * d + b * c) % p
     a, b = 1, 0
-    c, d = i, 1
+    c, d = y, 1
     q = p + 1
     while q := q // 2:
         if q % 2 == 1:
             a, b = mul(a, b, c, d)
         c, d = mul(c, d, c, d)
     return a
-def tonelli(δ, p):
+def tonelli(x, p):
     assert chkprime(p) and (p - 1) % 2 == 0
-    assert pow(δ, (p - 1) // 2, p) <= 1
+    assert pow(x, (p - 1) // 2, p) <= 1
     for z in range(2, p):
         if pow(z, (p - 1) // 2, p) != 1:
             break
     s, t = p - 1, 0
     while s % 2 == 0:
         s, t = s // 2, t + 1
-    α = (s + 1) // 2
-    h = pow(δ, α, p)
+    k = (s + 1) // 2
+    h = pow(x, k, p)
     a = pow(z, s, p)
-    b = pow(δ, s, p)
+    b = pow(x, s, p)
     for i in range(1, t):
         d = pow(b, 2 ** (t - i - 1), p)
         if d == 1:
@@ -174,61 +174,61 @@ def tonelli(δ, p):
             a = a * a % p
             b = b * a % p
     return h
-def adleman(δ, r, q): # r-th root of δ (r | q - 1 and q is prime)
-    assert chkprime(q) and (q - 1) % r == 0
-    assert pow(δ, (q - 1) // r, q) <= 1
-    for z in range(2, q):
-        if pow(z, (q - 1) // r, q) != 1:
+def adleman(x, q, p): # q-th root of x (q | p - 1 and q is prime)
+    assert chkprime(p) and (p - 1) % q == 0
+    assert pow(x, (p - 1) // q, p) <= 1
+    for z in range(2, p):
+        if pow(z, (p - 1) // q, p) != 1:
             break
-    s, t = q - 1, 0
-    while s % r == 0:
-        s, t = s // r, t + 1
-    α = modinv(r, s)
-    S = α * r - 1
-    h = pow(δ, α, q)
-    a = pow(z, s, q)
-    b = pow(δ, S, q)
-    c = pow(z, s * r ** (t - 1), q)
+    s, t = p - 1, 0
+    while s % q == 0:
+        s, t = s // q, t + 1
+    k = modinv(q, s)
+    S = k * q - 1
+    h = pow(x, k, p)
+    a = pow(z, s, p)
+    b = pow(x, S, p)
+    c = pow(a, q ** (t - 1), p)
     for i in range(1, t):
-        d = pow(b, r ** (t - 1 - i), q)
-        j, k = 0, 1
-        while k != d:
-            j, k = j - 1, k * c % q
-        h = pow(a, j, q) * h % q
-        a = pow(a, r, q)
-        b = pow(a, j, q) * b % q
+        d = pow(b, q ** (t - 1 - i), p)
+        j, e = 0, 1
+        while d != e:
+            j, e = j - 1, e * c % p
+        h = pow(a, j, p) * h % p
+        a = pow(a, q, p)
+        b = pow(a, j, p) * b % p
     return h
-def genroot(R, q): # R-th primitive root of q
-    assert chkprime(q) and (q - 1) % R == 0
-    p = 1
-    r = 2
-    while R > 1:
-        n = 0
-        while R % r == 0:
-            R, n = R // r, n + 1
-        if n > 0:
-            for z in range(2, q):
-                if pow(z, (q - 1) // r, q) != 1:
+def genroot(n, p): # n-th root of unity (n | p - 1)
+    assert chkprime(p) and (p - 1) % n == 0
+    g = 1
+    q = 2
+    while n > 1:
+        a = 0
+        while n % q == 0:
+            n, a = n // q, a + 1
+        if a > 0:
+            for z in range(2, p):
+                if pow(z, (p - 1) // q, p) != 1:
                     break
-            p = pow(z, (q - 1) // r ** n, q) * p % q
-        r = r + 1
-    return p
-def rootset(δ, R, q):
-    assert chkprime(q)
-    R, (i, _) = exgcd(R, q - 1)
-    δ = pow(δ, i, q)
-    O = R
-    p = 1
-    r = 2
-    while R > 1:
-        n = 0
-        while R % r == 0:
-            R, n = R // r, n + 1
-            δ = adleman(δ, r, q)
-        if n > 0:
-            for z in range(2, q):
-                if pow(z, (q - 1) // r, q) != 1:
+            g = pow(z, (p - 1) // q ** a, p) * g % p
+        q = q + 1
+    return g
+def rootset(x, n, p): # all n-th roots of x
+    assert chkprime(p)
+    n, (u, _) = exgcd(n, p - 1)
+    x = pow(x, u, p)
+    N = n
+    g = 1
+    q = 2
+    while n > 1:
+        a = 0
+        while n % q == 0:
+            n, a = n // q, a + 1
+            x = adleman(x, q, p)
+        if a > 0:
+            for z in range(2, p):
+                if pow(z, (p - 1) // q, p) != 1:
                     break
-            p = pow(z, (q - 1) // r ** n, q) * p % q
-        r = r + 1
-    return {δ * pow(p, i, q) % q for i in range(O)}
+            g = pow(z, (p - 1) // q ** a, p) * g % p
+        q = q + 1
+    return {x * pow(g, i, p) % p for i in range(N)}
