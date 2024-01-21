@@ -138,64 +138,71 @@ def phi(factors):
         assert chkprime(p)
         f *= p ** (a - 1) * (p - 1)
     return f
-def legendre(x, p, q = 2):
-    assert chkprime(p) and (p - 1) % q == 0
-    return pow(x, (p - 1) // q, p)
-def amm(x, q, p): # q-th root of x (q | p - 1 and q is prime)
-    assert chkprime(p) and (p - 1) % q == 0
-    assert pow(x, (p - 1) // q, p) <= 1
+def legendre(x, p, r = 2, m = 1):
+    assert chkprime(p) and p != 2
+    q, f = p ** m, p ** (m - 1) * (p - 1)
+    assert f % r == 0
+    return pow(x, f // r, p)
+def amm(x, r, p, m = 1): # q-th root of x (q | p - 1 and q is prime)
+    assert chkprime(p) and p != 2
+    q, f = p ** m, p ** (m - 1) * (p - 1)
+    assert f % r == 0
+    assert pow(x, f // r, q) <= 1
     for z in range(2, p):
-        if pow(z, (p - 1) // q, p) != 1:
+        if pow(z, f // r, q) != 1:
             break
-    s, t = p - 1, 0
-    while s % q == 0:
-        s, t = s // q, t + 1
-    k = modinv(q, s)
-    S = k * q - 1
-    h = pow(x, k, p)
-    a = pow(z, s, p)
-    b = pow(x, S, p)
-    c = pow(a, q ** (t - 1), p)
+    s, t = f, 0
+    while s % r == 0:
+        s, t = s // r, t + 1
+    k = modinv(r, s)
+    S = k * r - 1
+    h = pow(x, k, q)
+    a = pow(z, s, q)
+    b = pow(x, S, q)
+    c = pow(a, r ** (t - 1), q)
     for i in range(1, t):
-        d = pow(b, q ** (t - 1 - i), p)
+        d = pow(b, r ** (t - 1 - i), q)
         j, e = 0, 1
         while d != e:
-            j, e = j - 1, e * c % p
-        h = pow(a, j, p) * h % p
-        a = pow(a, q, p)
-        b = pow(a, j, p) * b % p
+            j, e = j - 1, e * c % q
+        h = pow(a, j, q) * h % q
+        a = pow(a, r, q)
+        b = pow(a, j, q) * b % q
     return h
-def genroot(n, p): # n-th root of unity (n | p - 1)
-    assert chkprime(p) and (p - 1) % n == 0
+def genroot(n, p, m = 1): # n-th root of unity (n | p - 1)
+    assert chkprime(p) and p != 2
+    q, f = p ** m, p ** (m - 1) * (p - 1)
+    assert f % n == 0
     g = 1
-    q = 2
+    r = 2
     while n > 1:
         a = 0
-        while n % q == 0:
-            n, a = n // q, a + 1
+        while n % r == 0:
+            n, a = n // r, a + 1
         if a > 0:
             for z in range(2, p):
-                if pow(z, (p - 1) // q, p) != 1:
+                if pow(z, f // r, q) != 1:
                     break
-            g = pow(z, (p - 1) // q ** a, p) * g % p
-        q = q + 1
+            g = pow(z, f // r ** a, q) * g % q
+        r = r + 1
     return g
-def rootset(x, n, p): # all n-th roots of x
-    assert chkprime(p)
+def rootset(x, n, p, m = 1): # all n-th roots of x
+    assert chkprime(p) and p != 2
+    q, f = p ** m, p ** (m - 1) * (p - 1)
     n, (u, _) = exgcd(n, p - 1)
-    x = pow(x, u, p)
+    x = pow(x, u, q)
     N = n
     g = 1
-    q = 2
+    r = 2
     while n > 1:
         a = 0
-        while n % q == 0:
-            n, a = n // q, a + 1
-            x = amm(x, q, p)
+        while n % r == 0:
+            n, a = n // r, a + 1
+            x = amm(x, r, q)
         if a > 0:
             for z in range(2, p):
-                if pow(z, (p - 1) // q, p) != 1:
+                if pow(z, f // r, q) != 1:
                     break
-            g = pow(z, (p - 1) // q ** a, p) * g % p
-        q = q + 1
-    return {x * pow(g, i, p) % p for i in range(N)}
+            g = pow(z, f // r ** a, q) * g % q
+        r = r + 1
+    return {x * pow(g, i, q) % q for i in range(N)}
