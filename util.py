@@ -26,15 +26,15 @@ def modinv(a, m):
     assert d == 1
     return r % m
 def moddiv(a, b, m):
-    # input: a, b, m such that exists c such that gcd(b, m) | a
+    # input: a, b, m such that gcd(b, m) | a
     # output: k, n such that c = a / b (mod m) if and only if c = k (mod n)
     d, (r, _) = exgcd(b, m)
     assert a % d == 0
     n = m // d
     return a // d * r % n, n
 def crt(D):
-    # input: D, which is a list of (r, m) pairs
-    # output: (R, M) pair such that x = r (mod m) for all (r, m) in D if and only if x = R (mod M)
+    # input: D, which is a list of r, m pairs
+    # output: R, M such that x = r (mod m) for all r, m in D if and only if x = R (mod M)
     R, M = 0, 1
     for r, m in D:
         d, (N, n) = exgcd(M, m)
