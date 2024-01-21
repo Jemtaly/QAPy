@@ -164,7 +164,7 @@ def amm(x, r, p, m = 1):
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     assert f % r == 0
-    assert pow(x, f // r, q) == 1
+    assert pow(x, f // r, q) == 1 # ensure x is a r-th power residue modulo p ** m
     for z in range(2, p):
         if pow(z, f // r, q) != 1:
             break
@@ -186,7 +186,7 @@ def amm(x, r, p, m = 1):
         a = pow(a, r, q)
         b = pow(a, j, q) * b % q
     return h
-def primroot(n, p, m = 1):
+def generator(n, p, m = 1):
     # input: n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
     # output: g such that g ** n == 1 (mod p ** m) and g ** i != 1 (mod p ** m) for 0 < i < n
     assert chkprime(p) and p != 2
@@ -211,8 +211,8 @@ def modroots(x, n, p, m = 1):
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     n, (u, v) = exgcd(n, f)
-    x = pow(x, u, q)
-    N = n
+    x = pow(x, u, q) # x ** ((n, f) / n (mod f)) (mod q)
+    assert pow(x, f // n, q) == 1 # ensure x is a n-th power residue modulo p ** m
     g = 1
     r = 2
     while n > 1:
@@ -226,11 +226,16 @@ def modroots(x, n, p, m = 1):
                     break
             g = pow(z, f // r ** a, q) * g % q
         r = r + 1
-    return {x * pow(g, i, q) % q for i in range(N)}
-def legendre(x, n, p, m = 1):
+    S = set()
+    while x not in S:
+        S.add(x)
+        x = x * g % q
+    return S
+def ispowres(x, n, p, m = 1):
     # input: x, n, p, m such that p is odd prime
     # output: 1 if and only if x is a n-th power residue modulo p ** m
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     n, (u, v) = exgcd(n, f)
+    x = pow(x, u, q) # can be omitted here
     return pow(x, f // n, q)
