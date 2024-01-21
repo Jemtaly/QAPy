@@ -141,46 +141,7 @@ def phi(factors):
 def legendre(x, p, q = 2):
     assert chkprime(p) and (p - 1) % q == 0
     return pow(x, (p - 1) // q, p)
-def cipolla(x, p):
-    assert chkprime(p) and (p - 1) % 2 == 0
-    assert pow(x, (p - 1) // 2, p) <= 1
-    for y in range(0, p):
-        z = (y * y - x) % p
-        if pow(z, (p - 1) // 2, p) != 1:
-            break
-    def mul(a, b, c, d):
-        return (a * c + b * d * z) % p, (a * d + b * c) % p
-    a, b = 1, 0
-    c, d = y, 1
-    q = p + 1
-    while q := q // 2:
-        if q % 2 == 1:
-            a, b = mul(a, b, c, d)
-        c, d = mul(c, d, c, d)
-    return a
-def tonelli(x, p):
-    assert chkprime(p) and (p - 1) % 2 == 0
-    assert pow(x, (p - 1) // 2, p) <= 1
-    for z in range(2, p):
-        if pow(z, (p - 1) // 2, p) != 1:
-            break
-    s, t = p - 1, 0
-    while s % 2 == 0:
-        s, t = s // 2, t + 1
-    k = (s + 1) // 2
-    h = pow(x, k, p)
-    a = pow(z, s, p)
-    b = pow(x, s, p)
-    for i in range(1, t):
-        d = pow(b, 2 ** (t - i - 1), p)
-        if d == 1:
-            a = a * a % p
-        else:
-            h = h * a % p
-            a = a * a % p
-            b = b * a % p
-    return h
-def adleman(x, q, p): # q-th root of x (q | p - 1 and q is prime)
+def amm(x, q, p): # q-th root of x (q | p - 1 and q is prime)
     assert chkprime(p) and (p - 1) % q == 0
     assert pow(x, (p - 1) // q, p) <= 1
     for z in range(2, p):
@@ -230,7 +191,7 @@ def rootset(x, n, p): # all n-th roots of x
         a = 0
         while n % q == 0:
             n, a = n // q, a + 1
-            x = adleman(x, q, p)
+            x = amm(x, q, p)
         if a > 0:
             for z in range(2, p):
                 if pow(z, (p - 1) // q, p) != 1:
