@@ -20,21 +20,21 @@ def exgcd(a, b):
     d, (x, y) = exgcd(b, a % b)
     return d, (y, x - a // b * y)
 def modinv(a, m):
-    # input: a, m such that gcd(a, m) = 1
-    # output: r = 1 / a (mod m)
+    # input: a, m such that (a, m) == 1
+    # output: the inverse of a modulo m
     d, (r, _) = exgcd(a, m)
     assert d == 1
     return r % m
 def moddiv(a, b, m):
-    # input: a, b, m such that gcd(b, m) | a
-    # output: k, n such that c = a / b (mod m) if and only if c = k (mod n)
+    # input: a, b, m such that (b, m) | a
+    # output: k, n such that c == a / b (mod m) if and only if c == k (mod n)
     d, (r, _) = exgcd(b, m)
     assert a % d == 0
     n = m // d
     return a // d * r % n, n
 def crt(D):
     # input: D, which is a list of r, m pairs
-    # output: R, M such that x = r (mod m) for all r, m in D if and only if x = R (mod M)
+    # output: R, M such that x == r (mod m) for all r, m in D if and only if x == R (mod M)
     R, M = 0, 1
     for r, m in D:
         d, (N, n) = exgcd(M, m)
@@ -148,20 +148,15 @@ def genprime(l):
             return n
 def phi(factors):
     # input: a dictionary that represents the prime factorization of n
-    # output: phi(n)
+    # output: #{x | (x, n) == 1, 0 <= x < n}
     f = 1
     for p, a in factors.items():
         assert chkprime(p)
         f *= p ** (a - 1) * (p - 1)
     return f
-def legendre(x, p, r = 2, m = 1):
-    assert chkprime(p) and p != 2
-    q, f = p ** m, p ** (m - 1) * (p - 1)
-    assert f % r == 0
-    return pow(x, f // r, q)
 def amm(x, r, p, m = 1):
-    # input: x, r, p, m such that p is odd prime, r | phi(p ** m)
-    # output: h such that h ** r = x (mod p ** m)
+    # input: x, r, p, m such that p is odd prime, p ** m * (1 - 1 / p) can be expressed as s * r ** t where (s, r) == 1
+    # output: h such that h ** r == x (mod p ** m)
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     assert f % r == 0
@@ -188,8 +183,8 @@ def amm(x, r, p, m = 1):
         b = pow(a, j, q) * b % q
     return h
 def primroot(n, p, m = 1):
-    # input: n, p, m such that p is odd prime, n | phi(p ** m)
-    # output: g such that g ** n = 1 (mod p ** m) and g ** i != 1 (mod p ** m) for 0 < i < n
+    # input: n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
+    # output: g such that g ** n == 1 (mod p ** m) and g ** i != 1 (mod p ** m) for 0 < i < n
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     assert f % n == 0
@@ -208,7 +203,7 @@ def primroot(n, p, m = 1):
     return g
 def modroots(x, n, p, m = 1):
     # input: x, n, p, m such that p is odd prime
-    # output: {y | y ** n = x (mod p ** m)}
+    # output: {y | y ** n == x (mod p ** m)}
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     n, (u, _) = exgcd(n, f)
@@ -228,3 +223,10 @@ def modroots(x, n, p, m = 1):
             g = pow(z, f // r ** a, q) * g % q
         r = r + 1
     return {x * pow(g, i, q) % q for i in range(N)}
+def legendre(x, n, p, m = 1):
+    # input: x, n, p, m such that p is odd prime
+    # output: 1 if and only if x is a n-th power residue modulo p ** m
+    assert chkprime(p) and p != 2
+    q, f = p ** m, p ** (m - 1) * (p - 1)
+    n, (u, _) = exgcd(n, f)
+    return pow(x, f // n, q)
