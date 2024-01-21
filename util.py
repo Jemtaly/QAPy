@@ -2,31 +2,39 @@
 import random
 import sys
 sys.setrecursionlimit(0x10000)
+def sample(a, b, n):
+    # take n elements from [a, b) distinctively
+    res = set()
+    while len(res) < n:
+        res.add(random.randrange(a, b))
+    return res
+def choice(a, b, n):
+    # take n elements from [a, b) independently
+    res = []
+    while len(res) < n:
+        res.append(random.randrange(a, b))
+    return res
 def exgcd(a, b):
     if b == 0:
         return abs(a), ((a > 0) - (a < 0), 0)
     d, (x, y) = exgcd(b, a % b)
     return d, (y, x - a // b * y)
 def modinv(a, m):
+    # input: a, m such that gcd(a, m) = 1
+    # output: r = 1 / a (mod m)
     d, (r, _) = exgcd(a, m)
     assert d == 1
     return r % m
 def moddiv(a, b, m):
+    # input: a, b, m such that exists c such that gcd(b, m) | a
+    # output: k, n such that c = a / b (mod m) if and only if c = k (mod n)
     d, (r, _) = exgcd(b, m)
     assert a % d == 0
     n = m // d
     return a // d * r % n, n
-def sample(a, b, n): # take n elements from [a, b) distinctively
-    res = set()
-    while len(res) < n:
-        res.add(random.randrange(a, b))
-    return res
-def choice(a, b, n): # take n elements from [a, b) independently
-    res = []
-    while len(res) < n:
-        res.append(random.randrange(a, b))
-    return res
 def crt(D):
+    # input: D, which is a list of (r, m) pairs
+    # output: (R, M) pair such that x = r (mod m) for all (r, m) in D if and only if x = R (mod M)
     R, M = 0, 1
     for r, m in D:
         d, (N, n) = exgcd(M, m)
@@ -34,7 +42,9 @@ def crt(D):
         R += (r - R) // d * N * M
         M *= m // d
     return R % M, M
-def rref(m, h, w, q): # reduced row echelon form
+def rref(m, h, w, q):
+    # input: m, h, w, q such that m is a h * w matrix over Z / q
+    # output: reduced row echelon form of m
     for J in range(w):
         I = next((I for I in range(h) if all(m[I][j] == 0 for j in range(J)) and m[I][J] != 0), None)
         if I is None:
@@ -46,6 +56,8 @@ def rref(m, h, w, q): # reduced row echelon form
             for j in range(J, w):
                 m[i][j] = (m[i][j] * m[I][J] - m[I][j] * mrecord) % q
 def lagrange(points, q):
+    # input: n points, each of which is a pair of x and y
+    # output: coefficients list of the n - 1 degree polynomial that passes through all the points
     n = len(points)
     coeffs = [0 for _ in range(n)]
     prod = [1]
@@ -98,11 +110,13 @@ def polyshow(coeffs):
     return ' + '.join('{} * x ** {}'.format(c, i) for i, c in enumerate(coeffs) if c != 0) or '0'
 def polyval(coeffs, x, q):
     return sum(c * x ** i for i, c in enumerate(coeffs)) % q
-def nsqrt(n):
-    l, r = 0, n + 1
+def root(x, n):
+    # input: x, n
+    # output: y such that y ** n <= x < (y + 1) ** n
+    l, r = 0, x + 1
     while r - l > 1:
         m = (r + l) // 2
-        if m * m > n:
+        if m ** n > x:
             r = m
         else:
             l = m
@@ -129,10 +143,12 @@ def chkprime(n, k = 16):
     return True
 def genprime(l):
     while True:
-        r = random.randrange(1 << l - 1, 1 << l)
-        if chkprime(r):
-            return r
+        n = random.randrange(1 << l - 1, 1 << l)
+        if chkprime(n):
+            return n
 def phi(factors):
+    # input: a dictionary that represents the prime factorization of n
+    # output: phi(n)
     f = 1
     for p, a in factors.items():
         assert chkprime(p)
@@ -142,12 +158,14 @@ def legendre(x, p, r = 2, m = 1):
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     assert f % r == 0
-    return pow(x, f // r, p)
-def amm(x, r, p, m = 1): # q-th root of x (q | p - 1 and q is prime)
+    return pow(x, f // r, q)
+def amm(x, r, p, m = 1):
+    # input: x, r, p, m such that p is odd prime, r | phi(p ** m)
+    # output: h such that h ** r = x (mod p ** m)
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     assert f % r == 0
-    assert pow(x, f // r, q) <= 1
+    assert pow(x, f // r, q) == 1
     for z in range(2, p):
         if pow(z, f // r, q) != 1:
             break
@@ -169,7 +187,9 @@ def amm(x, r, p, m = 1): # q-th root of x (q | p - 1 and q is prime)
         a = pow(a, r, q)
         b = pow(a, j, q) * b % q
     return h
-def genroot(n, p, m = 1): # n-th root of unity (n | p - 1)
+def primroot(n, p, m = 1):
+    # input: n, p, m such that p is odd prime, n | phi(p ** m)
+    # output: g such that g ** n = 1 (mod p ** m) and g ** i != 1 (mod p ** m) for 0 < i < n
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
     assert f % n == 0
@@ -186,10 +206,12 @@ def genroot(n, p, m = 1): # n-th root of unity (n | p - 1)
             g = pow(z, f // r ** a, q) * g % q
         r = r + 1
     return g
-def rootset(x, n, p, m = 1): # all n-th roots of x
+def modroots(x, n, p, m = 1):
+    # input: x, n, p, m such that p is odd prime
+    # output: {y | y ** n = x (mod p ** m)}
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
-    n, (u, _) = exgcd(n, p - 1)
+    n, (u, _) = exgcd(n, f)
     x = pow(x, u, q)
     N = n
     g = 1
@@ -198,7 +220,7 @@ def rootset(x, n, p, m = 1): # all n-th roots of x
         a = 0
         while n % r == 0:
             n, a = n // r, a + 1
-            x = amm(x, r, q)
+            x = amm(x, r, p, m)
         if a > 0:
             for z in range(2, p):
                 if pow(z, f // r, q) != 1:
