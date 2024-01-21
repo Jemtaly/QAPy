@@ -132,6 +132,12 @@ def genprime(l):
         r = random.randrange(1 << l - 1, 1 << l)
         if chkprime(r):
             return r
+def phi(factors):
+    f = 1
+    for p, a in factors.items():
+        assert chkprime(p)
+        f *= p ** (a - 1) * (p - 1)
+    return f
 def legendre(x, p, q = 2):
     assert chkprime(p) and (p - 1) % q == 0
     return pow(x, (p - 1) // q, p)
