@@ -15,6 +15,8 @@ def choice(a, b, n):
         res.append(random.randrange(a, b))
     return res
 def exgcd(a, b):
+    # input: a, b
+    # output: d, (x, y) such that d == (a, b) == a * x + b * y
     if b == 0:
         return abs(a), ((a > 0) - (a < 0), 0)
     d, (x, y) = exgcd(b, a % b)
@@ -30,17 +32,19 @@ def moddiv(a, b, m):
     # output: k, n such that c == a / b (mod m) if and only if c == k (mod n)
     d, (r, _) = exgcd(b, m)
     assert a % d == 0
+    k = a // d * r
     n = m // d
-    return a // d * r % n, n
+    return k % n, n
 def crt(D):
     # input: D, which is a list of r, m pairs
     # output: R, M such that x == r (mod m) for all r, m in D if and only if x == R (mod M)
     R, M = 0, 1
     for r, m in D:
         d, (N, n) = exgcd(M, m)
-        assert (r - R) % d == 0
-        R += (r - R) // d * N * M
-        M *= m // d
+        c = r - R
+        assert c % d == 0
+        R = R + c // d * N * M
+        M = M * m // d
     return R % M, M
 def rref(m, h, w, q):
     # input: m, h, w, q such that m is a h * w matrix over Z / q
@@ -206,7 +210,7 @@ def modroots(x, n, p, m = 1):
     # output: {y | y ** n == x (mod p ** m)}
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
-    n, (u, _) = exgcd(n, f)
+    n, (u, v) = exgcd(n, f)
     x = pow(x, u, q)
     N = n
     g = 1
@@ -228,5 +232,5 @@ def legendre(x, n, p, m = 1):
     # output: 1 if and only if x is a n-th power residue modulo p ** m
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** (m - 1) * (p - 1)
-    n, (u, _) = exgcd(n, f)
+    n, (u, v) = exgcd(n, f)
     return pow(x, f // n, q)
