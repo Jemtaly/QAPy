@@ -14,6 +14,17 @@ def choice(a, b, n):
     while len(res) < n:
         res.append(random.randrange(a, b))
     return res
+def root(x, n):
+    # input: x, n
+    # output: y such that y ** n <= x < (y + 1) ** n
+    l, r = 0, x + 1
+    while r - l > 1:
+        m = (r + l) // 2
+        if m ** n > x:
+            r = m
+        else:
+            l = m
+    return l
 def exgcd(a, b):
     # input: a, b
     # output: d, (x, y) such that d == (a, b) == a * x + b * y
@@ -114,17 +125,6 @@ def polyshow(coeffs):
     return ' + '.join('{} * x ** {}'.format(c, i) for i, c in enumerate(coeffs) if c != 0) or '0'
 def polyval(coeffs, x, q):
     return sum(c * x ** i for i, c in enumerate(coeffs)) % q
-def root(x, n):
-    # input: x, n
-    # output: y such that y ** n <= x < (y + 1) ** n
-    l, r = 0, x + 1
-    while r - l > 1:
-        m = (r + l) // 2
-        if m ** n > x:
-            r = m
-        else:
-            l = m
-    return l
 def chkprime(n, k = 16):
     if n == 2:
         return True
@@ -173,7 +173,7 @@ def ispowres(x, n, p, m = 1):
     q, f = p ** m, p ** m - p ** m // p
     assert f % n == 0
     return pow(x, f // n, q)
-def opprprt(x, r, p, m = 1):
+def ammroot(x, r, p, m = 1):
     # input: x, r, p, m such that p is odd prime, r is a prime factor of p ** m * (1 - 1 / p)
     # output: h such that h ** r == x (mod p ** m)
     assert chkprime(p) and p != 2
@@ -201,7 +201,7 @@ def opprprt(x, r, p, m = 1):
         a = pow(a, r, q)
         b = pow(a, j, q) * b % q
     return h
-def opproots(x, n, p, m = 1):
+def opproot(x, n, p, m = 1):
     # input: x, n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
     # output: all h in Z / p ** m such that h ** n == x (mod p ** m)
     assert chkprime(p) and p != 2
@@ -214,7 +214,7 @@ def opproots(x, n, p, m = 1):
         a = 0
         while n % r == 0:
             n, a = n // r, a + 1
-            x = opprprt(x, r, p, m)
+            x = ammroot(x, r, p, m)
         if a > 0:
             for z in range(2, p):
                 if pow(z, f // r, q) != 1:
@@ -236,15 +236,15 @@ def binsqrt(x, m):
         if (a * a - x) % 2 ** (i + 2) != 0:
             a = a + 2 ** i
     return a
-def binroots(x, k, m):
+def binroot(x, k, m):
     # input: x, k, m
     # output: a, b, c such that y ** n == x (mod 2 ** m) if and only if y == a or b (mod c), where n == 2 ** k
-    assert m >= 3 and k >= 1
+    assert m >= k + 2 >= 3
     assert x % 2 ** (k + 2) == 1
     for i in range(k):
         x = binsqrt(x, m - i)
     return x, 2 ** (m - k) - x, 2 ** (m - k)
 def modroot(x, n, factors):
-    # input: x, n, factors representing the prime factorization of m
+    # input: x, n and a dictionary that represents the prime factorization of m
     # output: x ** (1 / n) (mod m)
     return pow(x, modinv(n, phi(factors)), num(factors))
