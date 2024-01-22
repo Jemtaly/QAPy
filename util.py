@@ -152,19 +152,34 @@ def genprime(l):
             return n
 def phi(factors):
     # input: a dictionary that represents the prime factorization of n
-    # output: #{x | (x, n) == 1, 0 <= x < n}
+    # output: the number of integers less than n and coprime to n
     f = 1
     for p, a in factors.items():
         assert chkprime(p)
-        f *= p ** (a - 1) * (p - 1)
+        f *= p ** a - p ** a // p
     return f
-def amm(x, r, p, m = 1):
-    # input: x, r, p, m such that p is odd prime, p ** m * (1 - 1 / p) can be expressed as s * r ** t where (s, r) == 1
+def num(factors):
+    # input: a dictionary that represents the prime factorization of n
+    # output: the value of n
+    n = 1
+    for p, a in factors.items():
+        assert chkprime(p)
+        n *= p ** a
+    return n
+def ispowres(x, n, p, m = 1):
+    # input: x, n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
+    # output: 1 if and only if x is a n-th power residue modulo p ** m
+    assert chkprime(p) and p != 2
+    q, f = p ** m, p ** m - p ** m // p
+    assert f % n == 0
+    return pow(x, f // n, q)
+def opprprt(x, r, p, m = 1):
+    # input: x, r, p, m such that p is odd prime, r is a prime factor of p ** m * (1 - 1 / p)
     # output: h such that h ** r == x (mod p ** m)
     assert chkprime(p) and p != 2
-    q, f = p ** m, p ** (m - 1) * (p - 1)
+    q, f = p ** m, p ** m - p ** m // p
     assert f % r == 0
-    assert pow(x, f // r, q) == 1 # ensure x is a r-th power residue modulo p ** m
+    assert pow(x, f // r, q) == 1
     for z in range(2, p):
         if pow(z, f // r, q) != 1:
             break
@@ -186,40 +201,20 @@ def amm(x, r, p, m = 1):
         a = pow(a, r, q)
         b = pow(a, j, q) * b % q
     return h
-def generator(n, p, m = 1):
-    # input: n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
-    # output: g such that g ** n == 1 (mod p ** m) and g ** i != 1 (mod p ** m) for 0 < i < n
+def opproots(x, n, p, m = 1):
+    # input: x, n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
+    # output: all h in Z / p ** m such that h ** n == x (mod p ** m)
     assert chkprime(p) and p != 2
-    q, f = p ** m, p ** (m - 1) * (p - 1)
+    q, f = p ** m, p ** m - p ** m // p
     assert f % n == 0
-    g = 1
+    assert pow(x, f // n, q) == 1
+    g = 1 # primitive n-th root of unity modulo p ** m
     r = 2
     while n > 1:
         a = 0
         while n % r == 0:
             n, a = n // r, a + 1
-        if a > 0:
-            for z in range(2, p):
-                if pow(z, f // r, q) != 1:
-                    break
-            g = pow(z, f // r ** a, q) * g % q
-        r = r + 1
-    return g
-def modroots(x, n, p, m = 1):
-    # input: x, n, p, m such that p is odd prime
-    # output: {y | y ** n == x (mod p ** m)}
-    assert chkprime(p) and p != 2
-    q, f = p ** m, p ** (m - 1) * (p - 1)
-    n, (u, v) = exgcd(n, f)
-    x = pow(x, u, q) # x ** ((n, f) / n (mod f)) (mod q)
-    assert pow(x, f // n, q) == 1 # ensure x is a n-th power residue modulo p ** m
-    g = 1
-    r = 2
-    while n > 1:
-        a = 0
-        while n % r == 0:
-            n, a = n // r, a + 1
-            x = amm(x, r, p, m)
+            x = opprprt(x, r, p, m)
         if a > 0:
             for z in range(2, p):
                 if pow(z, f // r, q) != 1:
@@ -231,11 +226,25 @@ def modroots(x, n, p, m = 1):
         S.add(x)
         x = x * g % q
     return S
-def ispowres(x, n, p, m = 1):
-    # input: x, n, p, m such that p is odd prime
-    # output: 1 if and only if x is a n-th power residue modulo p ** m
-    assert chkprime(p) and p != 2
-    q, f = p ** m, p ** (m - 1) * (p - 1)
-    n, (u, v) = exgcd(n, f)
-    x = pow(x, u, q) # can be omitted here
-    return pow(x, f // n, q)
+def binsqrt(x, m):
+    # input: x, m
+    # output: y such that y ** 2 == x (mod 2 ** m), y == 1 (mod 8) and 0 <= y < 2 ** (m - 1)
+    assert m >= 3
+    assert x % 8 == 1
+    a = 1
+    for i in range(2, m - 1):
+        if (a * a - x) % 2 ** (i + 2) != 0:
+            a = a + 2 ** i
+    return a
+def binroots(x, k, m):
+    # input: x, k, m
+    # output: a, b, c such that y ** n == x (mod 2 ** m) if and only if y == a or b (mod c), where n == 2 ** k
+    assert m >= 3 and k >= 1
+    assert x % 2 ** (k + 2) == 1
+    for i in range(k):
+        x = binsqrt(x, m - i)
+    return x, 2 ** (m - k) - x, 2 ** (m - k)
+def modroot(x, n, factors):
+    # input: x, n, factors representing the prime factorization of m
+    # output: x ** (1 / n) (mod m)
+    return pow(x, modinv(n, phi(factors)), num(factors))
