@@ -227,7 +227,7 @@ def opproot(x, n, p, m = 1):
         x = x * g % q
     return S
 def binsqrt(x, m):
-    # input: x, m
+    # input: x, m such that m >= 3 and x == 1 (mod 8)
     # output: y such that y ** 2 == x (mod 2 ** m), y == 1 (mod 8) and 0 <= y < 2 ** (m - 1)
     assert m >= 3
     assert x % 8 == 1
@@ -237,7 +237,7 @@ def binsqrt(x, m):
             a = a + 2 ** i
     return a
 def binroot(x, k, m):
-    # input: x, k, m
+    # input: x, k, m such that m >= k + 2 >= 3 and x == 1 (mod 2 ** (k + 2))
     # output: a, b, c such that y ** n == x (mod 2 ** m) if and only if y == a or b (mod c), where n == 2 ** k
     assert m >= k + 2 >= 3
     assert x % 2 ** (k + 2) == 1

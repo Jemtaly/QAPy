@@ -1,35 +1,60 @@
 #!/usr/bin/python3
 import random
 import util
-def RSAGenKey(l):
-    p = util.genprime(l)
-    q = util.genprime(l)
-    phi = (p - 1) * (q - 1)
-    while True:
-        e = random.randrange(0, phi)
-        try:
-            d = util.modinv(e, phi)
-            return p, q, e, d
-        except AssertionError:
-            pass
-def RSACrypt(n, k, x):
-    return pow(x, k, n)
-def CRTCrypt(p, q, k, x): # Optimized by CRT (private key is required)
-    xp = x % p
-    xq = x % q
-    kp = k % (p - 1)
-    kq = k % (q - 1)
-    mp = pow(xp, kp, p)
-    mq = pow(xq, kq, q)
-    _, (r, s) = util.exgcd(p, q)
-    return (mp * s * q + mq * r * p) % (p * q)
+class RSAPubl:
+    def __init__(self, n, e):
+        self.n = n
+        self.e = e
+    def encrypt(self, x):
+        return pow(x, self.e, self.n)
+class RSAPriv:
+    def __init__(self, l):
+        p = util.genprime(l)
+        q = util.genprime(l)
+        phi = (p - 1) * (q - 1)
+        while True:
+            e = random.randrange(0, phi)
+            try:
+                d = util.modinv(e, phi)
+                break
+            except AssertionError:
+                pass
+        self.p = p
+        self.q = q
+        self.n = p * q
+        self.d = d
+        self.e = e
+        # CRT optimization parameters
+        self.r = p * util.modinv(p, q)
+        self.s = q * util.modinv(q, p)
+        self.u = d % (p - 1)
+        self.v = d % (q - 1)
+    def decrypt(self, x):
+        m = pow(x % self.p, self.u, self.p)
+        n = pow(x % self.q, self.v, self.q)
+        return (m * self.s + n * self.r) % self.n
+    def genpubl(self):
+        return RSAPubl(self.n, self.e)
 if __name__ == '__main__':
-    p, q, e, d = RSAGenKey(1024)
-    n = p * q
-    M = 0xfedcba9876543210
-    S = CRTCrypt(p, q, e, M) # signature
-    V = RSACrypt(n, d, S)    # verification
-    assert M == V
-    C = RSACrypt(n, e, M)    # encryption
-    P = CRTCrypt(p, q, d, C) # decryption
-    assert M == P
+    server = RSAPriv(1024)
+    client = server.genpubl()
+    # sign and verify
+    m = random.randrange(server.n)
+    s = server.decrypt(m) # signature
+    v = client.encrypt(s) # verification
+    assert m == v
+    # encrypt and decrypt
+    m = random.randrange(client.n)
+    c = client.encrypt(m) # encryption
+    p = server.decrypt(c) # decryption
+    assert m == p
+    # 1-out-of-n oblivious transfer
+    n = 10
+    M = [random.randrange(server.n) for i in range(n)] # secret messages
+    X = [random.randrange(server.n) for i in range(n)] # random messages
+    b = random.randrange(n) # secret choice
+    k = random.randrange(client.n) # random key
+    q = (X[b] + client.encrypt(k)) % client.n # blinded query
+    N = [(server.decrypt(q - x) + m) % server.n for x, m in zip(X, M)] # responses
+    m = (N[b] - k) % client.n # decryption
+    assert m == M[b]
