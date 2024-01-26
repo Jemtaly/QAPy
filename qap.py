@@ -15,7 +15,6 @@ class Program:
     def __init__(self):
         self.gates = []
         self.vars = []
-        self.asserts = []
         self.reveals = []
     def gate_count(self):
         return len(self.gates)
@@ -42,8 +41,8 @@ class Program:
         get = lambda xl: sum(witness[k] * v for k, v in xl) % Q
         for i, func in enumerate(self.vars):
             witness[i] = func(get, **kwargs)
-        for func in self.asserts:
-            assert func(get, **kwargs)
+        for al, bl, cl in self.gates:
+            assert get(al) * get(bl) % Q == get(cl)
         return witness
     def __bind(self, func, reveal = False): # create a new variable bound to a function, return its index
         i = len(self.vars)
@@ -92,7 +91,7 @@ class Program:
         self.gates.append((ol, xl, xl))
         self.gates.append((xl, il, ol))
         return ol
-    def BIN(self, el, xl, L): # return binary representation of x (L bits) (experiemental)
+    def BIN(self, el, xl, L): # return binary representation of x (L bits) / assert 0 <= x < 2 ** L
         bl = []
         closure = lambda I: lambda get, **kwargs: get(xl) >> I & 1
         for I in range(L):
@@ -100,10 +99,21 @@ class Program:
             il = [(iv, 1)]
             self.gates.append((il, il, il))
             bl.append((iv, 1 << I))
-        self.asserts.append(lambda get, **kwargs: get(xl) == get(bl))
         self.gates.append((el, xl, bl))
         return bl
-    def DEC(self, el, xl, LIST): # return decoding of x (LIST is a list of possible values) (experiemental)
+    def ABS(self, el, xl, L): # return absolute value of x (L bits) / assert abs(x) < 2 ** L
+        bl = []
+        closure = lambda I: lambda get, **kwargs: min(get(xl), Q - get(xl)) >> I & 1
+        for I in range(L):
+            iv = self.__bind(closure(I))
+            il = [(iv, 1)]
+            self.gates.append((il, il, il))
+            bl.append((iv, 1 << I))
+        sl = [(self.__bind(lambda get, **kwargs: int(get(xl) < Q - get(xl))), 1)]
+        self.gates.append((sl, sl, el))
+        self.gates.append((sl, xl, bl))
+        return bl
+    def DEC(self, el, xl, LIST): # return decoding of x (LIST is a list of possible values) / assert x in LIST
         dl = []
         fl = []
         closure = lambda V: lambda get, **kwargs: int(get(xl) == V)
@@ -113,8 +123,6 @@ class Program:
             self.gates.append((il, il, il))
             dl.append((iv, V))
             fl.append((iv, 1))
-        self.asserts.append(lambda get, **kwargs: get(xl) == get(dl))
-        self.asserts.append(lambda get, **kwargs: get(fl) == get(el))
         self.gates.append((el, xl, dl))
         self.gates.append((el, el, fl))
         return dl
@@ -127,7 +135,6 @@ class Program:
     def COND(self, cl, tl, fl): # return if c then t else f (c should be 0 or 1)
         return self.ADD(self.MUL(cl, self.SUB(tl, fl)), fl)
     def ASSERT(self, xl, yl, zl): # assert x * y == z (mod Q)
-        self.asserts.append(lambda get, **kwargs: get(xl) * get(yl) % Q == get(zl))
         self.gates.append((xl, yl, zl))
     def ASSERT_BOOL(self, xl): # assert x == 0 or x == 1
         self.ASSERT(xl, xl, xl)
