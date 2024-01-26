@@ -126,13 +126,15 @@ class Program:
         self.gates.append((el, xl, dl))
         self.gates.append((el, el, fl))
         return dl
+    def NOT(self, el, xl): # return ~x
+        return self.SUB(el, xl)
     def AND(self, el, al, bl): # return a & b
         return self.MUL(al, bl)
     def OR(self, el, al, bl): # return a | b
         return self.SUB(el, self.MUL(self.SUB(el, al), self.SUB(el, bl)))
     def XOR(self, el, al, bl): # return a ^ b
         return self.DIVN(self.SUB(el, self.MUL(self.SUB(el, self.MULN(al, 2)), self.SUB(el, self.MULN(bl, 2)))), 2)
-    def COND(self, cl, tl, fl): # return if c then t else f (c should be 0 or 1)
+    def IF(self, cl, tl, fl): # return if c then t else f (c should be 0 or 1)
         return self.ADD(self.MUL(cl, self.SUB(tl, fl)), fl)
     def ASSERT(self, xl, yl, zl): # assert x * y == z (mod Q)
         self.gates.append((xl, yl, zl))
