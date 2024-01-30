@@ -166,6 +166,10 @@ def num(factors):
         assert chkprime(p)
         n *= p ** a
     return n
+def modroot(x, n, factors):
+    # input: x, n and a dictionary that represents the prime factorization of m
+    # output: x ** (1 / n) (mod m)
+    return pow(x, modinv(n, phi(factors)), num(factors))
 def ispowres(x, n, p, m = 1):
     # input: x, n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
     # output: 1 if and only if x is a n-th power residue modulo p ** m
@@ -208,7 +212,7 @@ def opproot(x, n, p, m = 1):
     q, f = p ** m, p ** m - p ** m // p
     assert f % n == 0
     assert pow(x, f // n, q) == 1
-    g = 1 # primitive n-th root of unity modulo p ** m
+    g = 1 # g ** n == 1 (mod p ** m) and g ** i != 1 (mod p ** m) for all i < n
     r = 2
     while n > 1:
         a = 0
@@ -244,7 +248,3 @@ def binroot(x, k, m):
     for i in range(k):
         x = binsqrt(x, m - i)
     return x, 2 ** (m - k) - x, 2 ** (m - k)
-def modroot(x, n, factors):
-    # input: x, n and a dictionary that represents the prime factorization of m
-    # output: x ** (1 / n) (mod m)
-    return pow(x, modinv(n, phi(factors)), num(factors))
