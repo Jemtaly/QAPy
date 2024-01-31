@@ -150,35 +150,28 @@ def genprime(l):
         n = random.randrange(1 << l - 1, 1 << l)
         if chkprime(n):
             return n
-def phi(factors):
+def phi(fact):
     # input: a dictionary that represents the prime factorization of n
     # output: the number of integers less than n and coprime to n
     f = 1
-    for p, a in factors.items():
+    for p, a in fact.items():
         assert chkprime(p)
         f *= p ** a - p ** a // p
     return f
-def num(factors):
+def num(fact):
     # input: a dictionary that represents the prime factorization of n
     # output: the value of n
     n = 1
-    for p, a in factors.items():
+    for p, a in fact.items():
         assert chkprime(p)
         n *= p ** a
     return n
-def modroot(x, n, factors):
+def modroot(x, fact, n):
     # input: x, n and a dictionary that represents the prime factorization of m
     # output: x ** (1 / n) (mod m)
-    return pow(x, modinv(n, phi(factors)), num(factors))
-def ispowres(x, n, p, m = 1):
-    # input: x, n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
-    # output: 1 if and only if x is a n-th power residue modulo p ** m
-    assert chkprime(p) and p != 2
-    q, f = p ** m, p ** m - p ** m // p
-    assert f % n == 0
-    return pow(x, f // n, q)
-def ammroot(x, r, p, m = 1):
-    # input: x, r, p, m such that p is odd prime, r is a prime factor of p ** m * (1 - 1 / p)
+    return pow(x, modinv(n, phi(fact)), num(fact))
+def rthroot(x, p, m, r):
+    # input: x, p, m, r such that p is odd prime, r is a prime factor of p ** m * (1 - 1 / p)
     # output: h such that h ** r == x (mod p ** m)
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** m - p ** m // p
@@ -205,8 +198,8 @@ def ammroot(x, r, p, m = 1):
         a = pow(a, r, q)
         b = pow(a, j, q) * b % q
     return h
-def opproot(x, n, p, m = 1):
-    # input: x, n, p, m such that p is odd prime, n | p ** m * (1 - 1 / p)
+def nthroot(x, p, m, n):
+    # input: x, p, m, n such that p is odd prime, n | p ** m * (1 - 1 / p)
     # output: all h in Z / p ** m such that h ** n == x (mod p ** m)
     assert chkprime(p) and p != 2
     q, f = p ** m, p ** m - p ** m // p
@@ -218,7 +211,7 @@ def opproot(x, n, p, m = 1):
         a = 0
         while n % r == 0:
             n, a = n // r, a + 1
-            x = ammroot(x, r, p, m)
+            x = rthroot(x, r, p, m)
         if a > 0:
             for z in range(2, p):
                 if pow(z, f // r, q) != 1:
@@ -240,7 +233,7 @@ def binsqrt(x, m):
         if (a * a - x) % 2 ** (i + 2) != 0:
             a = a + 2 ** i
     return a
-def binroot(x, k, m):
+def binroot(x, m, k):
     # input: x, k, m such that m >= k + 2 >= 3 and x == 1 (mod 2 ** (k + 2))
     # output: a, b, c such that y ** n == x (mod 2 ** m) if and only if y == a or b (mod c), where n == 2 ** k
     assert m >= k + 2 >= 3
