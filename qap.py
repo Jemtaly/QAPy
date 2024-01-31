@@ -92,40 +92,48 @@ class Program:
         self.gates.append((xl, il, ol))
         return ol
     def BIN(self, el, xl, L): # return binary representation of x (L bits) / assert 0 <= x < 2 ** L
-        bl = []
+        rl = []
+        rb = []
         closure = lambda I: lambda get, **kwargs: get(xl) >> I & 1
         for I in range(L):
-            iv = self.__bind(closure(I))
-            il = [(iv, 1)]
+            il = [(self.__bind(closure(I)), 1)]
             self.gates.append((il, il, il))
-            bl.append((iv, 1 << I))
-        self.gates.append((el, xl, bl))
-        return bl
-    def ABS(self, el, xl, L): # return absolute value of x (L bits) / assert abs(x) < 2 ** L
-        bl = []
+            rl = self.ADD(rl, self.MULN(il, 1 << I))
+            rb.append(il)
+        self.gates.append((el, xl, rl))
+        return rb
+    def ABS(self, el, xl, L): # return binary representation of |x| (L bits) / assert |x| < 2 ** L
+        rl = []
+        rb = []
         closure = lambda I: lambda get, **kwargs: min(get(xl), P - get(xl)) >> I & 1
         for I in range(L):
-            iv = self.__bind(closure(I))
-            il = [(iv, 1)]
+            il = [(self.__bind(closure(I)), 1)]
             self.gates.append((il, il, il))
-            bl.append((iv, 1 << I))
+            rl = self.ADD(rl, self.MULN(il, 1 << I))
+            rb.append(il)
         sl = [(self.__bind(lambda get, **kwargs: int(get(xl) < P - get(xl))), 1)]
         self.gates.append((sl, sl, el))
-        self.gates.append((sl, xl, bl))
-        return bl
-    def DEC(self, el, xl, LIST): # return decoding of x (LIST is a list of possible values) / assert x in LIST
+        self.gates.append((sl, xl, rl))
+        return rb
+    def GET(self, bin): # return value of binary representation
+        xl = []
+        for I, il in enumerate(bin):
+            xl = self.ADD(xl, self.MULN(il, 1 << I))
+        return xl
+    def DEC(self, el, xl, S): # return decoding of x (S is a set of possible values) / assert x in S
         dl = []
         fl = []
-        closure = lambda V: lambda get, **kwargs: int(get(xl) == V)
-        for V in LIST:
-            iv = self.__bind(closure(V))
-            il = [(iv, 1)]
+        rd = {}
+        closure = lambda V: lambda get, **kwargs: int((get(xl) - V) % P == 0)
+        for V in S:
+            il = [(self.__bind(closure(V)), 1)]
             self.gates.append((il, il, il))
-            dl.append((iv, V))
-            fl.append((iv, 1))
+            dl = self.ADD(dl, self.MULN(il, V))
+            fl = self.ADD(fl, self.MULN(il, 1))
+            rd[V] = il
         self.gates.append((el, xl, dl))
         self.gates.append((el, el, fl))
-        return dl
+        return rd
     def AND(self, el, al, bl): # return a & b
         return self.MUL(al, bl)
     def OR(self, el, al, bl): # return a | b
@@ -142,15 +150,15 @@ class Program:
         self.ASSERT([], [], xl)
     def ASSERT_NONZ(self, el, xl): # assert x != 0 (mod P)
         self.DIV(el, xl)
-    def DIVMOD(self, el, xl, yl, Q, R): # return (x // y (Q bits), x % y (R bits))
+    def DIVMOD(self, el, xl, yl, Q, R): # return (x // y (Q bits), x % y (R bits)) (in binary representation)
         ql = [(self.__bind(lambda get, **kwargs: get(xl) // get(yl)), 1)]
         rl = [(self.__bind(lambda get, **kwargs: get(xl) % get(yl)), 1)]
         tl = self.ADD(self.SUB(rl, yl), self.MULN(el, 2 ** R))
         self.ASSERT(ql, yl, self.SUB(xl, rl)) # assert y * q == x - r
-        self.BIN(el, ql, Q) # assert 0 <= q < 2 ** Q
-        self.BIN(el, rl, R) # assert 0 <= r < 2 ** R
-        self.BIN(el, tl, R) # assert y - 2 ** R <= r < y
-        return ql, rl
+        qb = self.BIN(el, ql, Q) # assert 0 <= q < 2 ** Q
+        rb = self.BIN(el, rl, R) # assert 0 <= r < 2 ** R
+        tb = self.BIN(el, tl, R) # assert y - 2 ** R <= r < y
+        return qb, rb
 def prod(s):
     # generate polynomial t(x) = prod(x - k) for k in s
     t = [1]
@@ -172,7 +180,12 @@ if __name__ == '__main__':
     el = pro.VAR('e', reveal = 1) # 1
     xl = pro.VAR('x', reveal = 0) # x
     yl = pro.VAR('y', reveal = 0) # y
-    ql, rl = pro.DIVMOD(el, xl, yl, 16, 16) # x // y, x % y
+    zl = pro.VAR('z', reveal = 0) # z
+    xb = pro.BIN(el, xl, 16) # binary representation of x
+    yb = pro.BIN(el, yl, 16) # binary representation of y
+    tb = [pro.XOR(el, a, b) for a, b in zip(xb, yb)] # binary representation of x ^ y
+    tl = pro.GET(tb) # x ^ y
+    qb, rb = pro.DIVMOD(el, tl, zl, 16, 16) # x // y, x % y
     print('Gates:', M := pro.gate_count())
     print('Vars:', N := pro.var_count())
     with Timer('Generating R1CS...'):
@@ -184,8 +197,8 @@ if __name__ == '__main__':
         B = convert(B, s) # B polynomials set
         C = convert(C, s) # C polynomials set
     with Timer('Calculating witness...'):
-        w = pro.witness(e = 1, x = 65535, y = 1234)
-    print('witness =', w)
+        w = pro.witness(e = 1, x = 65535, y = 12345, z = 17)
+    print('witness = [{}]'.format(', '.join(('{} (reveal)' if i in pro.reveals else '{}').format(v) for i, v in enumerate(w))))
     with Timer('Verifying witness...'):
         a = dot(A, w)
         b = dot(B, w)
