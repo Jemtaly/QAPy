@@ -56,14 +56,14 @@ class Program:
         cl = [(self.__bind(lambda getw, **args: getw(al), True), 1)]
         self.gates.append(([], [], self.SUB(cl, al)))
         return cl
-    def MULN(self, al, N): # return a * N (mod P)
-        return [(i, m * N % P) for i, m in al]
-    def DIVN(self, al, N): # return a / N (mod P)
-        return [(i, m * util.modinv(N, P) % P) for i, m in al]
     def ADD(self, al, bl): # return a + b (mod P)
         return al + bl
     def SUB(self, al, bl): # return a - b (mod P)
         return al + [(i, -m % P) for i, m in bl]
+    def MUL_C(self, al, N): # return a * N (mod P)
+        return [(i, m * N % P) for i, m in al]
+    def DIV_C(self, al, N): # return a / N (mod P)
+        return [(i, m * util.modinv(N, P) % P) for i, m in al]
     def MUL(self, al, bl): # return a * b (mod P)
         cl = [(self.__bind(lambda getw, **args: getw(al) * getw(bl) % P), 1)]
         self.gates.append((al, bl, cl))
@@ -72,25 +72,19 @@ class Program:
         al = [(self.__bind(lambda getw, **args: getw(cl) * util.modinv(getw(bl), P) % P), 1)]
         self.gates.append((al, bl, cl))
         return al
-    def POW(self, el, al, N): # return a ** N (mod P)
-        if N < 0:
-            N = -N
-            al = self.DIV(el, al)
-        if N & 1:
-            el = al
-        N >>= 1
-        while N:
-            al = self.MUL(al, al)
-            if N & 1:
-                el = self.MUL(el, al)
-            N >>= 1
-        return el
-    def BOOL(self, xl): # return if x == 0 then 0 else 1
-        il = [(self.__bind(lambda getw, **args: pow(getw(xl), P - 2, P)), 1)]
-        ol = [(self.__bind(lambda getw, **args: pow(getw(xl), P - 1, P)), 1)]
-        self.gates.append((ol, xl, xl))
-        self.gates.append((xl, il, ol))
-        return ol
+    def SWITCH(self, el, xl, Set): # return a dictionary of {V: x == V} for V in Set / assert x in Set
+        fl = []
+        rd = {}
+        closure = lambda V: lambda getw, **args: int((getw(xl) - V) % P == 0)
+        for V in Set:
+            il = [(self.__bind(closure(V)), 1)]
+            self.gates.append((il, il, il))
+            dl = self.ADD(dl, self.MUL_C(il, V))
+            fl = self.ADD(fl, self.MUL_C(il, 1))
+            rd[V] = il
+        self.gates.append((el, xl, dl))
+        self.gates.append((el, el, fl))
+        return rd
     def BIN(self, el, xl, L): # return binary representation of x (L bits) / assert 0 <= x < 2 ** L
         rl = []
         rb = []
@@ -98,7 +92,7 @@ class Program:
         for I in range(L):
             il = [(self.__bind(closure(I)), 1)]
             self.gates.append((il, il, il))
-            rl = self.ADD(rl, self.MULN(il, 1 << I))
+            rl = self.ADD(rl, self.MUL_C(il, 1 << I))
             rb.append(il)
         self.gates.append((el, xl, rl))
         return rb
@@ -109,44 +103,45 @@ class Program:
         for I in range(L):
             il = [(self.__bind(closure(I)), 1)]
             self.gates.append((il, il, il))
-            rl = self.ADD(rl, self.MULN(il, 1 << I))
+            rl = self.ADD(rl, self.MUL_C(il, 1 << I))
             rb.append(il)
         sl = [(self.__bind(lambda getw, **args: int(getw(xl) < P - getw(xl))), 1)]
         self.gates.append((sl, sl, el))
         self.gates.append((sl, xl, rl))
         return rb
+    def SUM(self, ls): # return sum of list
+        rl = []
+        for il in ls:
+            rl = self.ADD(rl, il)
+        return rl
     def VAL(self, xb): # return value of binary representation
-        xl = []
-        for I, il in enumerate(xb):
-            xl = self.ADD(xl, self.MULN(il, 1 << I))
-        return xl
-    def DEC(self, el, xl, S): # return decoding of x (S is a set of possible values) / assert x in S
-        dl = []
-        fl = []
-        rd = {}
-        closure = lambda V: lambda getw, **args: int((getw(xl) - V) % P == 0)
-        for V in S:
-            il = [(self.__bind(closure(V)), 1)]
-            self.gates.append((il, il, il))
-            dl = self.ADD(dl, self.MULN(il, V))
-            fl = self.ADD(fl, self.MULN(il, 1))
-            rd[V] = il
-        self.gates.append((el, xl, dl))
-        self.gates.append((el, el, fl))
-        return rd
-    def ENC(self, xd): # return encoding of x (xd is a dictionary of possible values)
-        xl = []
-        for V, il in xd.items():
-            xl = self.ADD(xl, self.MULN(il, V))
-        return xl
+        return self.SUM(self.MUL_C(il, 1 << I) for I, il in enumerate(xb))
     def AND(self, el, al, bl): # return a & b
         return self.MUL(al, bl)
     def OR(self, el, al, bl): # return a | b
         return self.SUB(el, self.MUL(self.SUB(el, al), self.SUB(el, bl)))
     def XOR(self, el, al, bl): # return a ^ b
-        return self.DIVN(self.SUB(el, self.MUL(self.SUB(el, self.MULN(al, 2)), self.SUB(el, self.MULN(bl, 2)))), 2)
+        return self.DIV_C(self.SUB(el, self.MUL(self.SUB(el, self.MUL_C(al, 2)), self.SUB(el, self.MUL_C(bl, 2)))), 2)
+    def BOOL(self, xl): # return if x == 0 then 0 else 1
+        il = [(self.__bind(lambda getw, **args: pow(getw(xl), P - 2, P)), 1)]
+        ol = [(self.__bind(lambda getw, **args: pow(getw(xl), P - 1, P)), 1)]
+        self.gates.append((ol, xl, xl))
+        self.gates.append((xl, il, ol))
+        return ol
     def COND(self, cl, tl, fl): # return if c then t else f (c should be 0 or 1)
         return self.ADD(self.MUL(cl, self.SUB(tl, fl)), fl)
+    def AGET(self, kb, ls): # return ls[i] (i is binary representation)
+        for il in kb:
+            ls = [self.COND(il, rl, ll) for ll, rl in zip(ls[0::2], ls[1::2])]
+        return ls[0]
+    def COND_C(self, el, cl, T, F): # return if c then T else F (c should be 0 or 1)
+        return self.ADD(self.MUL_C(cl, T - F), self.MUL_C(el, F))
+    def AGET_C(self, el, kb, Arr): # return Arr[i] (i is binary representation)
+        il, *kb = kb
+        ls = [self.COND_C(el, il, R, L) for L, R in zip(Arr[0::2], Arr[1::2])]
+        for il in kb:
+            ls = [self.COND(il, rl, ll) for ll, rl in zip(ls[0::2], ls[1::2])]
+        return ls[0]
     def ASSERT(self, xl, yl, zl): # assert x * y == z (mod P)
         self.gates.append((xl, yl, zl))
     def ASSERT_BOOL(self, xl): # assert x == 0 or x == 1
@@ -158,7 +153,7 @@ class Program:
     def DIVMOD(self, el, xl, yl, Q, R): # return (x // y (Q bits), x % y (R bits)) (in binary representation)
         ql = [(self.__bind(lambda getw, **args: getw(xl) // getw(yl)), 1)]
         rl = [(self.__bind(lambda getw, **args: getw(xl) % getw(yl)), 1)]
-        tl = self.ADD(self.SUB(rl, yl), self.MULN(el, 2 ** R))
+        tl = self.ADD(self.SUB(rl, yl), self.MUL_C(el, 2 ** R))
         self.ASSERT(ql, yl, self.SUB(xl, rl)) # assert y * q == x - r
         qb = self.BIN(el, ql, Q) # assert 0 <= q < 2 ** Q
         rb = self.BIN(el, rl, R) # assert 0 <= r < 2 ** R
@@ -202,7 +197,7 @@ if __name__ == '__main__':
         B = convert(B, s) # B polynomials set
         C = convert(C, s) # C polynomials set
     with Timer('Calculating witness...'):
-        w = pro.witness(e = 1, x = 65535, y = 12345, z = 17)
+        w = pro.witness(e = 1, x = 13, y = 12345, z = 17)
     print('witness = [{}]'.format(', '.join(('{} (reveal)' if i in pro.reveals else '{}').format(v) for i, v in enumerate(w))))
     with Timer('Verifying witness...'):
         a = dot(A, w)
