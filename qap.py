@@ -15,7 +15,7 @@ class Program:
     def __init__(self):
         self.gates = []
         self.vars = [lambda getw, **args: 1]
-        self.reveals = [0]
+        self.reveals = {0}
     def gate_count(self):
         return len(self.gates)
     def var_count(self):
@@ -54,31 +54,31 @@ class Program:
         return [(self.__bind(lambda getw, **args: args[name], reveal), 1)]
     def REVEAL(self, a): # reveal the value of a variable
         r = [(self.__bind(lambda getw, **args: getw(a), True), 1)]
-        self.ASSERT(0, 0, self.SUB(r, a))
+        self.ASSERT(1, a, r)
         return r
     def ADD(self, a, b): # return a + b (mod P)
         if isinstance(a, int) and isinstance(b, int):
             return (a + b) % P
-        if isinstance(a, int):
-            a = [(0, a)]
         if isinstance(b, int):
             b = [(0, b)]
+        if isinstance(a, int):
+            a = [(0, a)]
         return a + b
     def SUB(self, a, b): # return a - b (mod P)
         if isinstance(a, int) and isinstance(b, int):
             return (a - b) % P
-        if isinstance(a, int):
-            a = [(0, a)]
         if isinstance(b, int):
             b = [(0, b)]
+        if isinstance(a, int):
+            a = [(0, a)]
         return a + [(i, -m % P) for i, m in b]
     def MUL(self, a, b): # return a * b (mod P)
         if isinstance(a, int) and isinstance(b, int):
             return a * b % P
-        if isinstance(a, int):
-            return [(i, m * a % P) for i, m in b]
         if isinstance(b, int):
             return [(i, m * b % P) for i, m in a]
+        if isinstance(a, int):
+            return [(i, m * a % P) for i, m in b]
         c = [(self.__bind(lambda getw, **args: getw(a) * getw(b) % P), 1)]
         self.gates.append((a, b, c))
         return c
@@ -92,16 +92,23 @@ class Program:
         c = [(self.__bind(lambda getw, **args: getw(a) * util.modinv(getw(b), P) % P), 1)]
         self.gates.append((c, b, a))
         return c
+    def POW(self, a, Bin): # return a ** Bin (mod P)
+        i, *Bin = Bin
+        r = self.IF(i, a, 1)
+        for i in Bin:
+            a = self.MUL(a, a)
+            r = self.MUL(r, self.IF(i, a, 1))
+        return r
     def SUM(self, Lst): # return sum of list
-        rl = []
+        r = 0
         for i in Lst:
-            rl = self.ADD(rl, i)
-        return rl
+            r = self.ADD(r, i)
+        return r
     def SWITCH(self, x, Set): # return a dictionary of {V: x == V} for V in Set / assert x in Set
         if isinstance(x, int):
             return {V: int((x - V) % P == 0) for V in Set}
-        d = []
-        f = []
+        d = 0
+        f = 0
         Dct = {}
         closure = lambda V: lambda getw, **args: int((getw(x) - V) % P == 0)
         for V in Set:
@@ -113,15 +120,15 @@ class Program:
         self.ASSERT(1, x, d)
         self.ASSERT(1, 1, f)
         return Dct
-    def GETITEM(self, Map, Dct): # return Map[x] / assert x in Map
+    def GETITEM(self, Map, Dct): # return Map @ Dct / assert x in Map
         return self.SUM(self.MUL(Map[k], Dct[k]) for k in Map)
-    def SETITEM(self, Map, Dct, v): # Map[x] = v / assert x in Map
+    def SETITEM(self, Map, Dct, v): # Map[i] = Dct[i] ? v : Map[i] / assert x in Map
         for k in Map:
             Map[k] = self.ADD(Map[k], self.MUL(Dct[k], self.SUB(v, Map[k])))
     def BINARY(self, x, L): # return binary representation of x (L bits) / assert 0 <= x < 2 ** L
         if isinstance(x, int):
             return [x >> I & 1 for I in range(L)]
-        r = []
+        r = 0
         Bin = []
         closure = lambda I: lambda getw, **args: getw(x) >> I & 1
         for I in range(L):
@@ -134,7 +141,7 @@ class Program:
     def BINABS(self, x, L): # return binary representation of |x| (L bits) / assert |x| < 2 ** L
         if isinstance(x, int):
             return [min(x % P, -x % P) >> I & 1 for I in range(L)]
-        r = []
+        r = 0
         Bin = []
         closure = lambda I: lambda getw, **args: min(getw(x), P - getw(x)) >> I & 1
         for I in range(L):
@@ -154,7 +161,7 @@ class Program:
         return self.SUB(1, self.MUL(self.SUB(1, a), self.SUB(1, b)))
     def XOR(self, a, b): # return a ^ b
         return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(a, 2)), self.SUB(1, self.MUL(b, 2)))), 2)
-    def BOOL(self, x): # return if x == 0 then 0 else 1
+    def BOOL(self, x): # return x != 0
         v = [(self.__bind(lambda getw, **args: pow(getw(x), P - 2, P)), 1)]
         o = [(self.__bind(lambda getw, **args: pow(getw(x), P - 1, P)), 1)]
         self.ASSERT(o, x, x)
@@ -162,9 +169,9 @@ class Program:
         return o
     def IF(self, c, t, f): # return if c then t else f (c should be 0 or 1)
         return self.ADD(self.MUL(c, self.SUB(t, f)), f)
-    def INDEX(self, Arr, Bin): # return Arr[i] (i is binary representation)
+    def INDEX(self, Arr, Bin): # return Arr[Bin]
         for i in Bin:
-            Arr = [self.IF(i, rl, ll) for ll, rl in zip(Arr[0::2], Arr[1::2])]
+            Arr = [self.IF(i, r, l) for l, r in zip(Arr[0::2], Arr[1::2])]
         return Arr[0]
     def ASSERT(self, x, y, z): # assert x * y == z (mod P)
         if isinstance(x, int) and isinstance(y, int) and isinstance(z, int):
@@ -183,7 +190,7 @@ class Program:
         self.ASSERT(0, 0, x)
     def ASSERT_NONZ(self, x): # assert x != 0 (mod P)
         self.DIV(1, x)
-    def DIVMOD(self, x, y, Q, R): # return (x // y (Q bits) (in binary representation), x % y (R bits) (in binary representation))
+    def DIVMOD(self, x, y, Q, R): # return x // y (Q bits), x % y (R bits)
         if isinstance(x, int) and isinstance(y, int):
             return [x // y >> I & 1 for I in range(Q)], [x % y >> I & 1 for I in range(R)]
         if isinstance(x, int):
@@ -198,7 +205,7 @@ class Program:
         rBin = self.BINARY(r, R) # assert 0 <= r < 2 ** R
         tBin = self.BINARY(t, R) # assert y - 2 ** R <= r < y
         return qBin, rBin
-    def DIVMSW(self, x, Y, Q): # return (x // y (Q bits) (in binary representation), x % y (R bits) (in binary representation))
+    def DIVMSW(self, x, Y, Q): # return x // Y (Q bits), x % Y (from {0, 1, ..., Y - 1})
         if isinstance(x, int):
             return [x // Y >> I & 1 for I in range(Q)], {i: int(x % Y == i) for i in range(Y)}
         q = [(self.__bind(lambda getw, **args: getw(x) // Y), 1)]
