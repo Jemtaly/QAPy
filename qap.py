@@ -119,8 +119,8 @@ class Program:
     def GETITEM(self, Map, Dct): # return Map @ Dct / assert x in Map
         return self.SUM(self.MUL(Map[k], Dct[k]) for k in Map)
     def SETITEM(self, Map, Dct, v): # Map[i] = Dct[i] ? v : Map[i] / assert x in Map
-        for k in Map:
-            Map[k] = self.ADD(Map[k], self.MUL(Dct[k], self.SUB(v, Map[k])))
+        for K in Map:
+            Map[K] = self.ADD(Map[K], self.MUL(Dct[K], self.SUB(v, Map[K])))
     def BINARY(self, x, L): # return binary representation of x (L bits) / assert 0 <= x < 2 ** L
         if isinstance(x, int):
             return [x >> I & 1 for I in range(L)]
@@ -201,14 +201,14 @@ class Program:
         rBin = self.BINARY(r, R) # assert 0 <= r < 2 ** R
         tBin = self.BINARY(t, R) # assert y - 2 ** R <= r < y
         return qBin, rBin
-    def DIVMSW(self, x, Y, Q): # return x // Y (Q bits), x % Y (from {0, 1, ..., Y - 1})
+    def DIVMSW(self, x, Y, Q): # return x // Y (Q bits), x % Y (in range(Y))
         if isinstance(x, int):
-            return [x // Y >> I & 1 for I in range(Q)], {i: int(x % Y == i) for i in range(Y)}
+            return [x // Y >> I & 1 for I in range(Q)], {V: int(x % Y == V) for V in range(Y)}
         q = {self.__bind(lambda getw, **args: getw(x) // Y): 1}
         r = {self.__bind(lambda getw, **args: getw(x) % Y): 1}
         self.ASSERT(q, Y, self.SUB(x, r)) # assert y * q == x - r
         qBin = self.BINARY(q, Q) # assert 0 <= q < 2 ** Q
-        rDct = self.SWITCH(r, range(Y)) # assert 0 <= r < y
+        rDct = self.SWITCH(r, range(Y)) # assert r in range(Y)
         return qBin, rDct
 def prod(s):
     # generate polynomial t(x) = prod(x - k) for k in s
