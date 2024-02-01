@@ -167,6 +167,9 @@ class Program:
             Arr = [self.IF(i, rl, ll) for ll, rl in zip(Arr[0::2], Arr[1::2])]
         return Arr[0]
     def ASSERT(self, x, y, z): # assert x * y == z (mod P)
+        if isinstance(x, int) and isinstance(y, int) and isinstance(z, int):
+            assert x * y % P == z
+            return
         if isinstance(x, int):
             x = [(0, x)]
         if isinstance(y, int):
@@ -182,7 +185,7 @@ class Program:
         self.DIV(1, x)
     def DIVMOD(self, x, y, Q, R): # return (x // y (Q bits) (in binary representation), x % y (R bits) (in binary representation))
         if isinstance(x, int) and isinstance(y, int):
-            return [(x // y >> I & 1, 1) for I in range(Q)], [(x % y >> I & 1, 1) for I in range(R)]
+            return [x // y >> I & 1 for I in range(Q)], [x % y >> I & 1 for I in range(R)]
         if isinstance(x, int):
             x = [(0, x)]
         if isinstance(y, int):
@@ -197,7 +200,7 @@ class Program:
         return qBin, rBin
     def DIVMSW(self, x, Y, Q): # return (x // y (Q bits) (in binary representation), x % y (R bits) (in binary representation))
         if isinstance(x, int):
-            return [(x // Y >> I & 1, 1) for I in range(Q)], {i: int(i == x % Y) for i in range(Y)}
+            return [x // Y >> I & 1 for I in range(Q)], {i: int(x % Y == i) for i in range(Y)}
         q = [(self.__bind(lambda getw, **args: getw(x) // Y), 1)]
         r = [(self.__bind(lambda getw, **args: getw(x) % Y), 1)]
         self.ASSERT(q, Y, self.SUB(x, r)) # assert y * q == x - r
