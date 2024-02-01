@@ -74,7 +74,7 @@ class Program:
         return a + [(i, -m % P) for i, m in b]
     def MUL(self, a, b): # return a * b (mod P)
         if isinstance(a, int) and isinstance(b, int):
-            return (a * b) % P
+            return a * b % P
         if isinstance(a, int):
             return [(i, m * a % P) for i, m in b]
         if isinstance(b, int):
@@ -84,7 +84,7 @@ class Program:
         return c
     def DIV(self, a, b): # return a / b (mod P)
         if isinstance(a, int) and isinstance(b, int):
-            return (a * util.modinv(b, P)) % P
+            return a * util.modinv(b, P) % P
         if isinstance(b, int):
             return [(i, m * util.modinv(b, P) % P) for i, m in a]
         if isinstance(a, int):
@@ -120,7 +120,7 @@ class Program:
             Map[k] = self.ADD(Map[k], self.MUL(Dct[k], self.SUB(v, Map[k])))
     def BINARY(self, x, L): # return binary representation of x (L bits) / assert 0 <= x < 2 ** L
         if isinstance(x, int):
-            return [(x >> I & 1, 1) for I in range(L)]
+            return [x >> I & 1 for I in range(L)]
         r = []
         Bin = []
         closure = lambda I: lambda getw, **args: getw(x) >> I & 1
@@ -133,7 +133,7 @@ class Program:
         return Bin
     def BINABS(self, x, L): # return binary representation of |x| (L bits) / assert |x| < 2 ** L
         if isinstance(x, int):
-            return [(abs(x) >> I & 1, 1) for I in range(L)]
+            return [min(x % P, -x % P) >> I & 1 for I in range(L)]
         r = []
         Bin = []
         closure = lambda I: lambda getw, **args: min(getw(x), P - getw(x)) >> I & 1
