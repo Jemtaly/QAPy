@@ -211,7 +211,7 @@ def nthroot(x, p, m, n):
         a = 0
         while n % r == 0:
             n, a = n // r, a + 1
-            x = rthroot(x, r, p, m)
+            x = rthroot(x, p, m, r)
         if a > 0:
             for z in range(2, p):
                 if pow(z, f // r, q) != 1:
