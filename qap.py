@@ -63,50 +63,43 @@ class Program:
         if isinstance(z, int):
             z = {0: z}
         self.gates.append((x, y, z))
-    def ADD(self, a, b): # return a + b (mod P)
-        if isinstance(a, int) and isinstance(b, int):
-            return (a + b) % P
-        if isinstance(b, int):
-            b = {0: b}
-        if isinstance(a, int):
-            a = {0: a}
-        return {k: (a.get(k, 0) + b.get(k, 0)) % P for k in a.keys() | b.keys()}
-    def SUB(self, a, b): # return a - b (mod P)
-        if isinstance(a, int) and isinstance(b, int):
-            return (a - b) % P
-        if isinstance(b, int):
-            b = {0: b}
-        if isinstance(a, int):
-            a = {0: a}
-        return {k: (a.get(k, 0) - b.get(k, 0)) % P for k in a.keys() | b.keys()}
-    def MUL(self, a, b): # return a * b (mod P)
-        if isinstance(a, int) and isinstance(b, int):
-            return a * b % P
-        if isinstance(b, int):
-            return {i: m * b % P for i, m in a.items()}
-        if isinstance(a, int):
-            return {i: m * a % P for i, m in b.items()}
-        c = self.__bind(lambda getw, **args: getw(a) * getw(b) % P)
-        self.ASSERT(a, b, c)
-        return c
-    def DIV(self, a, b): # return a / b (mod P)
-        if isinstance(a, int) and isinstance(b, int):
-            return a * util.modinv(b, P) % P
-        if isinstance(b, int):
-            return {i: m * util.modinv(b, P) % P for i, m in a.items()}
-        if isinstance(a, int):
-            a = {0: a}
-        c = self.__bind(lambda getw, **args: getw(a) * util.modinv(getw(b), P) % P)
-        self.ASSERT(c, b, a)
-        return c
-    def POW(self, a, Bin): # return a ** Bin (mod P)
-        i, *Bin = Bin
-        r = self.IF(i, a, 1)
-        for i in Bin:
-            a = self.MUL(a, a)
-            r = self.MUL(r, self.IF(i, a, 1))
-        return r
-    def SUM(self, Lst): # return sum of list
+    def ADD(self, x, y): # return x + y (mod P)
+        if isinstance(x, int) and isinstance(y, int):
+            return (x + y) % P
+        if isinstance(y, int):
+            y = {0: y}
+        if isinstance(x, int):
+            x = {0: x}
+        return {k: (x.get(k, 0) + y.get(k, 0)) % P for k in x.keys() | y.keys()}
+    def SUB(self, x, y): # return x - y (mod P)
+        if isinstance(x, int) and isinstance(y, int):
+            return (x - y) % P
+        if isinstance(y, int):
+            y = {0: y}
+        if isinstance(x, int):
+            x = {0: x}
+        return {k: (x.get(k, 0) - y.get(k, 0)) % P for k in x.keys() | y.keys()}
+    def MUL(self, x, y): # return x * y (mod P)
+        if isinstance(x, int) and isinstance(y, int):
+            return x * y % P
+        if isinstance(y, int):
+            return {i: m * y % P for i, m in x.items()}
+        if isinstance(x, int):
+            return {i: m * x % P for i, m in y.items()}
+        z = self.__bind(lambda getw, **args: getw(x) * getw(y) % P)
+        self.ASSERT(x, y, z)
+        return z
+    def DIV(self, x, y): # return x / y (mod P)
+        if isinstance(x, int) and isinstance(y, int):
+            return x * util.modinv(y, P) % P
+        if isinstance(y, int):
+            return {i: m * util.modinv(y, P) % P for i, m in x.items()}
+        if isinstance(x, int):
+            x = {0: x}
+        z = self.__bind(lambda getw, **args: getw(x) * util.modinv(getw(y), P) % P)
+        self.ASSERT(z, y, x)
+        return z
+    def SUM(self, Lst): # return sum of elements in Lst
         r = 0
         for i in Lst:
             r = self.ADD(r, i)
@@ -120,14 +113,14 @@ class Program:
         for V in Set:
             b = Dct[V] = bind(V)
             self.ASSERT(b, b, b)
-        d = self.SUM(self.MUL(b, V) for V, b in Dct.items())
-        f = self.SUM(self.MUL(b, 1) for V, b in Dct.items())
-        self.ASSERT(1, x, d)
-        self.ASSERT(1, 1, f)
+        r = self.SUM(self.MUL(b, V) for V, b in Dct.items())
+        e = self.SUM(self.MUL(b, 1) for V, b in Dct.items())
+        self.ASSERT(1, x, r)
+        self.ASSERT(1, 1, e)
         return Dct
-    def GETITEM(self, Map, Dct): # return Map @ Dct / assert x in Map
+    def GETITEM(self, Map, Dct): # return Map @ Dct
         return self.SUM(self.MUL(Map[k], Dct[k]) for k in Map)
-    def SETITEM(self, Map, Dct, v): # Map[i] = Dct[i] ? v : Map[i] / assert x in Map
+    def SETITEM(self, Map, Dct, v): # Map[K] = Dct[K] ? v : Map[K]
         for K in Map:
             Map[K] = self.ADD(Map[K], self.MUL(Dct[K], self.SUB(v, Map[K])))
     def BINARY(self, x, L): # return binary representation of x (L bits) / assert 0 <= x < 2 ** L
@@ -144,6 +137,13 @@ class Program:
         return Bin
     def VAL(self, Bin): # return value of binary representation
         return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(Bin))
+    def POW(self, x, Bin): # return x ** Bin (mod P)
+        b, *Bin = Bin
+        r = self.IF(b, x, 1)
+        for b in Bin:
+            x = self.MUL(x, x)
+            r = self.MUL(r, self.IF(b, x, 1))
+        return r
     def BINABS(self, x, L): # return binary representation of |x| (L bits) / assert |x| < 2 ** L
         if isinstance(x, int):
             assert min(x % P, P - x % P) < 2 ** L
@@ -195,17 +195,17 @@ class Program:
         return o
     def NOT(self, x): # return ~x
         return self.SUB(1, x)
-    def AND(self, a, b): # return a & b
-        return self.MUL(a, b)
-    def OR(self, a, b): # return a | b
-        return self.SUB(1, self.MUL(self.SUB(1, a), self.SUB(1, b)))
-    def XOR(self, a, b): # return a ^ b
-        return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(a, 2)), self.SUB(1, self.MUL(b, 2)))), 2)
-    def IF(self, c, t, f): # return if c then t else f (c should be 0 or 1)
-        return self.ADD(self.MUL(c, self.SUB(t, f)), f)
+    def AND(self, x, y): # return x & y
+        return self.MUL(x, y)
+    def OR(self, x, y): # return x | y
+        return self.SUB(1, self.MUL(self.SUB(1, x), self.SUB(1, y)))
+    def XOR(self, x, y): # return x ^ y
+        return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(x, 2)), self.SUB(1, self.MUL(y, 2)))), 2)
+    def IF(self, b, t, f): # return if b then t else f (b should be a boolean)
+        return self.ADD(self.MUL(b, self.SUB(t, f)), f)
     def INDEX(self, Arr, Bin): # return Arr[Bin]
-        for i in Bin:
-            Arr = [self.IF(i, r, l) for l, r in zip(Arr[0::2], Arr[1::2])]
+        for b in Bin:
+            Arr = [self.IF(b, r, l) for l, r in zip(Arr[0::2], Arr[1::2])]
         return Arr[0]
     def ASSERT_BOOL(self, x): # assert x == 0 or x == 1
         self.ASSERT(x, x, x)
