@@ -114,14 +114,14 @@ class Program:
     def SWITCH(self, x, Set): # return a dictionary of {V: x == V} for V in Set / assert x in Set
         if isinstance(x, int):
             assert x in Set
-            return {V: int((x - V) % P == 0) for V in Set}
+            return {V: pow(x - V, P - 1, P) for V in Set}
         Dct = {V: 0 for V in Set}
-        mkbd = lambda V: self.__bind(lambda getw, **args: int((getw(x) - V) % P == 0))
+        bind = lambda V: self.__bind(lambda getw, **args: pow(getw(x) - V, P - 1, P))
         for V in Set:
-            Dct[V] = i = mkbd(V)
-            self.ASSERT(i, i, i)
-        d = self.SUM(self.MUL(i, V) for V, i in Dct.items())
-        f = self.SUM(self.MUL(i, 1) for V, i in Dct.items())
+            b = Dct[V] = bind(V)
+            self.ASSERT(b, b, b)
+        d = self.SUM(self.MUL(b, V) for V, b in Dct.items())
+        f = self.SUM(self.MUL(b, 1) for V, b in Dct.items())
         self.ASSERT(1, x, d)
         self.ASSERT(1, 1, f)
         return Dct
@@ -134,30 +134,30 @@ class Program:
         if isinstance(x, int):
             assert 0 <= x < 2 ** L
             return [x >> I & 1 for I in range(L)]
+        bind = lambda I: self.__bind(lambda getw, **args: getw(x) >> I & 1)
         Bin = [0 for _ in range(L)]
-        mkbd = lambda I: self.__bind(lambda getw, **args: getw(x) >> I & 1)
         for I in range(L):
-            Bin[I] = i = mkbd(I)
-            self.ASSERT(i, i, i)
-        r = self.SUM(self.MUL(i, 1 << I) for I, i in enumerate(Bin))
+            b = Bin[I] = bind(I)
+            self.ASSERT(b, b, b)
+        r = self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(Bin))
         self.ASSERT(1, x, r)
         return Bin
+    def VAL(self, Bin): # return value of binary representation
+        return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(Bin))
     def BINABS(self, x, L): # return binary representation of |x| (L bits) / assert |x| < 2 ** L
         if isinstance(x, int):
-            assert min(x % P, -x % P) < 2 ** L
-            return [min(x % P, -x % P) >> I & 1 for I in range(L)]
-        Bin = [0 for _ in range(L)]
-        mkbd = lambda I: self.__bind(lambda getw, **args: min(getw(x), P - getw(x)) >> I & 1)
-        for I in range(L):
-            Bin[I] = i = mkbd(I)
-            self.ASSERT(i, i, i)
-        s = self.__bind(lambda getw, **args: int(getw(x) < P - getw(x)))
+            assert min(x % P, P - x % P) < 2 ** L
+            return [min(x % P, P - x % P) >> I & 1 for I in range(L)]
+        s = self.__bind(lambda getw, **args: (getw(x) * 2 < P) - (getw(x) * 2 > P))
         self.ASSERT(s, s, 1)
-        r = self.SUM(self.MUL(i, 1 << I) for I, i in enumerate(Bin))
+        bind = lambda I: self.__bind(lambda getw, **args: min(getw(x), P - getw(x)) >> I & 1)
+        Bin = [0 for _ in range(L)]
+        for I in range(L):
+            b = Bin[I] = bind(I)
+            self.ASSERT(b, b, b)
+        r = self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(Bin))
         self.ASSERT(s, x, r)
         return Bin
-    def VAL(self, Bin): # return value of binary representation
-        return self.SUM(self.MUL(i, 1 << I) for I, i in enumerate(Bin))
     def DIVMOD(self, x, y, Q, R): # return x // y (Q bits), x % y (R bits)
         if isinstance(x, int) and isinstance(y, int):
             assert 0 <= x // y < 2 ** Q
@@ -187,12 +187,14 @@ class Program:
         return qBin, rDct
     def BOOL(self, x): # return x != 0
         if isinstance(x, int):
-            return int(x != 0)
+            return pow(x, P - 1, P)
         v = self.__bind(lambda getw, **args: pow(getw(x), P - 2, P))
         o = self.__bind(lambda getw, **args: pow(getw(x), P - 1, P))
         self.ASSERT(o, x, x)
         self.ASSERT(x, v, o)
         return o
+    def NOT(self, x): # return ~x
+        return self.SUB(1, x)
     def AND(self, a, b): # return a & b
         return self.MUL(a, b)
     def OR(self, a, b): # return a | b
