@@ -6,7 +6,7 @@ class Timer:
     def __init__(self, text):
         self.text = text
     def __enter__(self):
-        print(self.text, end = ' ')
+        print(self.text, end = ' ', flush = True)
         self.beg = time.time()
     def __exit__(self, *args):
         self.end = time.time()
@@ -15,12 +15,12 @@ class Program:
     def __init__(self):
         self.cons = []
         self.dims = [lambda getw, **args: 1]
-        self.pubs = {0}
+        self.pubs = {0: 'unit'}
     def con_count(self):
         return len(self.cons)
     def dim_count(self):
         return len(self.dims)
-    def R1CS(self):
+    def compile_to_R1CS(self):
         M = self.dim_count()
         N = self.con_count()
         A = [[0 for _ in range(M)] for _ in range(N)]
@@ -35,21 +35,31 @@ class Program:
             for k, v in c.items():
                 C[i][k] = v
         return A, B, C
-    def QAP(self):
+    def compile_to_QAP(self):
         M = self.dim_count()
         N = self.con_count()
+        A = [[] for _ in range(M)]
+        B = [[] for _ in range(M)]
+        C = [[] for _ in range(M)]
+        for i, con in enumerate(self.cons, 1):
+            a, b, c = con
+            for k, v in a.items():
+                A[k].append((i, v))
+            for k, v in b.items():
+                B[k].append((i, v))
+            for k, v in c.items():
+                C[k].append((i, v))
+        LLUT = [1]
+        RLUT = [1]
         poly = [1]
         for k in range(1, N + 1):
+            LLUT.append(LLUT[-1] * +k % P)
+            RLUT.append(RLUT[-1] * -k % P)
             poly = [(v - k * u) % P for u, v in zip(poly + [0], [0] + poly)]
         def lagrange(points, q):
             coeffs = [0 for _ in range(N)]
-            for j, (xj, yj) in enumerate(points):
-                if yj == 0:
-                    continue
-                dj = 1
-                for m, (xm, ym) in enumerate(points):
-                    if m != j:
-                        dj = dj * (xj - xm) % q
+            for xj, yj in points:
+                dj = LLUT[xj - 1] * RLUT[N - xj] % P
                 kj = util.modinv(dj, q)
                 rj = util.modinv(xj, q)
                 temp = 0
@@ -57,12 +67,11 @@ class Program:
                     temp = (temp - poly[i]) * rj % q
                     coeffs[i] = (coeffs[i] + yj * kj * temp) % q
             return coeffs
-        A, B, C = self.R1CS()
-        Aips = [lagrange(list(enumerate((A[j][i] for j in range(N)), 1)), P) for i in range(M)]
-        Bips = [lagrange(list(enumerate((B[j][i] for j in range(N)), 1)), P) for i in range(M)]
-        Cips = [lagrange(list(enumerate((C[j][i] for j in range(N)), 1)), P) for i in range(M)]
+        Aips = [lagrange(Apts, P) for Apts in A]
+        Bips = [lagrange(Bpts, P) for Bpts in B]
+        Cips = [lagrange(Cpts, P) for Cpts in C]
         return poly, Aips, Bips, Cips
-    def witness(self, **args):
+    def proof(self, **args):
         M = self.dim_count()
         witness = [0 for _ in range(M)]
         getw = lambda x: sum(witness[k] * v for k, v in x.items()) % P
@@ -71,14 +80,26 @@ class Program:
         for a, b, c in self.cons:
             assert getw(a) * getw(b) % P == getw(c)
         return witness
-    def __bind(self, func, public = False):
+    @staticmethod
+    def verify(poly, Aips, Bips, Cips, witness):
+        a = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Aips)]
+        b = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Bips)]
+        c = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Cips)]
+        d = util.polysub(util.polymul(a, b, P), c, P)
+        q, r = util.polydm(d, poly, P)
+        return not any(r)
+    def __bind(self, func, pubname = None):
         i = len(self.dims)
         self.dims.append(func)
-        if public:
-            self.pubs.add(i)
+        if pubname is not None:
+            self.pubs[i] = pubname
         return {i: 1}
     def VAR(self, name, public = False):
-        return self.__bind(lambda getw, **args: args[name], public)
+        return self.__bind(lambda getw, **args: args[name], name if public else None)
+    def RET(self, name, x):
+        if isinstance(x, int):
+            x = {0: x}
+        return self.__bind(lambda getw, **args: getw(x), name if name else 'unnamed')
     def ASSERT(self, x, y, z):
         if isinstance(x, int) and isinstance(y, int) and isinstance(z, int):
             assert x * y % P == z
@@ -97,7 +118,7 @@ class Program:
             y = {0: y}
         if isinstance(x, int):
             x = {0: x}
-        return {k: (x.get(k, 0) + y.get(k, 0)) % P for k in x.keys() | y.keys()}
+        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)}
     def SUB(self, x, y):
         if isinstance(x, int) and isinstance(y, int):
             return (x - y) % P
@@ -105,7 +126,7 @@ class Program:
             y = {0: y}
         if isinstance(x, int):
             x = {0: x}
-        return {k: (x.get(k, 0) - y.get(k, 0)) % P for k in x.keys() | y.keys()}
+        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)}
     def MUL(self, x, y):
         if isinstance(x, int) and isinstance(y, int):
             return x * y % P
@@ -134,9 +155,9 @@ class Program:
     def SWITCH(self, x, Keys):
         if isinstance(x, int):
             assert x in Keys
-            return {K: pow(x - K, P - 1, P) for K in Keys}
+            return {K: 1 - pow(x - K, P - 1, P) for K in Keys}
         xChk = {K: 0 for K in Keys}
-        bind = lambda K: self.__bind(lambda getw, **args: pow(getw(x) - K, P - 1, P))
+        bind = lambda K: self.__bind(lambda getw, **args: 1 - pow(getw(x) - K, P - 1, P))
         for K in Keys:
             b = xChk[K] = bind(K)
             self.ASSERT_ISBOOL(b)
@@ -191,15 +212,22 @@ class Program:
         return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(x, 2)), self.SUB(1, self.MUL(y, 2)))), 2)
     def IF(self, b, t, f):
         return self.ADD(self.MUL(b, self.SUB(t, f)), f)
-    def GETITEM(self, Dict, iChk):
+    def GETDI(self, Dict, iChk):
         return self.SUM(self.MUL(Dict[K], iChk[K]) for K in Dict)
-    def SETITEM(self, Dict, iChk, v):
-        for K in Dict:
-            Dict[K] = self.IF(iChk[K], v, Dict[K])
-    def INDEX(self, List, iBin):
+    def SETDI(self, Dict, iChk, v):
+        for K, b in iChk.items():
+            Dict[K] = self.IF(b, v, Dict[K])
+    def GETLI(self, List, iBin):
         for b in iBin:
             List = [self.IF(b, r, l) for l, r in zip(List[0::2], List[1::2])]
         return List[0]
+    def SETLI(self, List, iBin, v):
+        iDec = [1]
+        for b in iBin:
+            iDec = [self.AND(self.NOT(b), i) for i in iDec] + [self.AND(b, i) for i in iDec]
+        for I, b in enumerate(iDec):
+            List[I] = self.IF(b, v, List[I])
+        return List
     def VAL(self, xBin):
         return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
     def POW(self, x, nBin):
@@ -252,41 +280,51 @@ class Program:
         self.SWITCH(x, Keys)
     def ASSERT_LEN(self, x, xLen):
         self.BINARY(x, xLen)
-def dot(Mips, w):
-    return [sum(i * j for i, j in zip(u, w)) % P for u in zip(*Mips)]
 if __name__ == '__main__':
     print('GF({})'.format(P))
     # Example Program
-    pro = Program()
-    x = pro.VAR('x', public = 0) # x
-    y = pro.VAR('y', public = 0) # y
-    z = pro.VAR('z', public = 0) # z
-    xBin = pro.BINARY(x, 16) # binary representation of x
-    yBin = pro.BINARY(y, 16) # binary representation of y
-    tBin = [pro.XOR(a, b) for a, b in zip(xBin, yBin)] # binary representation of x ^ y
-    t = pro.VAL(tBin) # x ^ y
-    q, r = pro.DIVMOD(t, z, 16, 16) # x // y, x % y
+    with Timer('Generating program...'):
+        pro = Program()
+        SBox = list(range(256))
+        SDct = dict(enumerate(range(256)))
+        jBin = pro.BINARY(0, 8)
+        for i in range(256):
+            iBin = pro.BINARY(i, 8)
+            u = pro.GETLI(SBox, iBin)
+            k = pro.VAR('k[0x{:02x}]'.format(i))
+            tBin = pro.BINARY(u, 8)
+            kBin = pro.BINARY(k, 8)
+            jBin = pro.BINADD(jBin, kBin, 0, 8)[0]
+            jBin = pro.BINADD(jBin, tBin, 0, 8)[0]
+            v = pro.GETLI(SBox, jBin)
+            pro.SETLI(SBox, iBin, v)
+            pro.SETLI(SBox, jBin, u)
+        eBin = pro.BINARY(1, 8)
+        xBin = pro.BINARY(0, 8)
+        yBin = pro.BINARY(0, 8)
+        for i in range(256):
+            xBin = pro.BINADD(xBin, eBin, 0, 8)[0]
+            a = pro.GETLI(SBox, xBin)
+            aBin = pro.BINARY(a, 8)
+            yBin = pro.BINADD(yBin, aBin, 0, 8)[0]
+            b = pro.GETLI(SBox, yBin)
+            bBin = pro.BINARY(b, 8)
+            pro.SETLI(SBox, xBin, b)
+            pro.SETLI(SBox, yBin, a)
+            sBin = pro.BINADD(aBin, bBin, 0, 8)[0]
+            o = pro.GETLI(SBox, sBin)
+            pro.RET('r[0x{:02x}]'.format(i), o)
     print('Number of constraints:', pro.con_count())
     print('Number of dimensions:', pro.dim_count())
     with Timer('Calculating R1CS and QAP...'):
-        t, A, B, C = pro.QAP()
+        u, A, B, C = pro.compile_to_QAP()
     with Timer('Calculating witness...'):
-        w = pro.witness(x = 65535, y = 12345, z = 17)
-    print('witness = [{}]'.format(', '.join(('{} (pub)' if i in pro.pubs else '{}').format(v) for i, v in enumerate(w))))
+        args = {'k[0x{:02x}]'.format(i): i for i in range(256)}
+        w = pro.proof(**args)
+    print('witness = [{}]'.format(', '.join('{} = {}'.format(pro.pubs[i], v) if i in pro.pubs else '{}'.format(v) for i, v in enumerate(w))))
     with Timer('Verifying witness...'):
-        a = dot(A, w)
-        b = dot(B, w)
-        c = dot(C, w)
-        d = util.polysub(util.polymul(a, b, P), c, P)
-        q, r = util.polydm(d, t, P)
-    if any(r):
-        print('Verification failed!')
-        print('a(x) =', util.polyshow(a))
-        print('b(x) =', util.polyshow(b))
-        print('c(x) =', util.polyshow(c))
-        print('d(x) =', util.polyshow(d))
-        print('t(x) =', util.polyshow(t))
-        print('q(x) =', util.polyshow(q))
-        print('r(x) =', util.polyshow(r))
-    else:
+        passed = Program.verify(u, A, B, C, w)
+    if passed:
         print('Verification passed!')
+    else:
+        print('Verification failed!')

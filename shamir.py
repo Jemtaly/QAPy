@@ -18,9 +18,9 @@ def recsecret(shares):
         for m, (xm, ym) in enumerate(shares):
             if m != j:
                 dj = dj * (xm - xj) % Q
-        qj = util.modinv(dj, Q)
+        kj = util.modinv(dj, Q)
         rj = util.modinv(xj, Q)
-        secret = (secret + yj * qj * rj) % Q
+        secret = (secret + yj * kj * rj) % Q
     return secret * prod % Q
 if __name__ == '__main__':
     print('GF({})'.format(Q))
