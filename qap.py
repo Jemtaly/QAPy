@@ -14,9 +14,8 @@ class Timer:
 class Program:
     def __init__(self):
         self.cons = []
-        self.dims = []
-        self.pubs = set()
-        self.e = self.__bind(lambda getw, **args: 1, True)
+        self.dims = [lambda getw, **args: 1]
+        self.pubs = {0}
     def con_count(self):
         return len(self.cons)
     def dim_count(self):
@@ -85,27 +84,27 @@ class Program:
             assert x * y % P == z
             return
         if isinstance(x, int):
-            x = {self.e: x}
+            x = {0: x}
         if isinstance(y, int):
-            y = {self.e: y}
+            y = {0: y}
         if isinstance(z, int):
-            z = {self.e: z}
+            z = {0: z}
         self.cons.append((x, y, z))
     def ADD(self, x, y):
         if isinstance(x, int) and isinstance(y, int):
             return (x + y) % P
         if isinstance(y, int):
-            y = {self.e: y}
+            y = {0: y}
         if isinstance(x, int):
-            x = {self.e: x}
+            x = {0: x}
         return {k: (x.get(k, 0) + y.get(k, 0)) % P for k in x.keys() | y.keys()}
     def SUB(self, x, y):
         if isinstance(x, int) and isinstance(y, int):
             return (x - y) % P
         if isinstance(y, int):
-            y = {self.e: y}
+            y = {0: y}
         if isinstance(x, int):
-            x = {self.e: x}
+            x = {0: x}
         return {k: (x.get(k, 0) - y.get(k, 0)) % P for k in x.keys() | y.keys()}
     def MUL(self, x, y):
         if isinstance(x, int) and isinstance(y, int):
@@ -123,7 +122,7 @@ class Program:
         if isinstance(y, int):
             return {i: m * util.modinv(y, P) % P for i, m in x.items()}
         if isinstance(x, int):
-            x = {self.e: x}
+            x = {0: x}
         z = self.__bind(lambda getw, **args: getw(x) * util.modinv(getw(y), P) % P)
         self.ASSERT(z, y, x)
         return z
@@ -136,69 +135,44 @@ class Program:
         if isinstance(x, int):
             assert x in Keys
             return {K: pow(x - K, P - 1, P) for K in Keys}
-        dChk = {K: 0 for K in Keys}
+        xChk = {K: 0 for K in Keys}
         bind = lambda K: self.__bind(lambda getw, **args: pow(getw(x) - K, P - 1, P))
         for K in Keys:
-            b = dChk[K] = bind(K)
-            self.ASSERT(b, b, b)
-        r = self.SUM(self.MUL(b, K) for K, b in dChk.items())
-        e = self.SUM(self.MUL(b, 1) for K, b in dChk.items())
-        self.ASSERT(1, x, r)
-        self.ASSERT(1, 1, e)
-        return dChk
-    def BINARY(self, x, L):
+            b = xChk[K] = bind(K)
+            self.ASSERT_ISBOOL(b)
+        t = self.SUM(self.MUL(b, K) for K, b in xChk.items())
+        e = self.SUM(self.MUL(b, 1) for K, b in xChk.items())
+        self.ASSERT_EQ(x, t)
+        self.ASSERT_EQ(1, e)
+        return xChk
+    def BINARY(self, x, xLen):
         if isinstance(x, int):
-            assert 0 <= x < 2 ** L
-            return [x >> I & 1 for I in range(L)]
+            assert 0 <= x < 2 ** xLen
+            return [x >> I & 1 for I in range(xLen)]
         bind = lambda I: self.__bind(lambda getw, **args: getw(x) >> I & 1)
-        aBin = [0 for _ in range(L)]
-        for I in range(L):
-            b = aBin[I] = bind(I)
-            self.ASSERT(b, b, b)
-        a = self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(aBin))
-        self.ASSERT(1, x, a)
-        return aBin
-    def BINABS(self, x, L):
-        if isinstance(x, int):
-            assert min(x % P, P - x % P) < 2 ** L
-            return [min(x % P, P - x % P) >> I & 1 for I in range(L)]
-        s = self.__bind(lambda getw, **args: (getw(x) * 2 < P) - (getw(x) * 2 > P))
-        self.ASSERT(s, s, 1)
-        bind = lambda I: self.__bind(lambda getw, **args: min(getw(x), P - getw(x)) >> I & 1)
-        aBin = [0 for _ in range(L)]
-        for I in range(L):
-            b = aBin[I] = bind(I)
-            self.ASSERT(b, b, b)
-        a = self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(aBin))
-        self.ASSERT(s, x, a)
-        return aBin
-    def DIVMOD(self, x, y, Q, R):
+        xBin = [0 for _ in range(xLen)]
+        for I in range(xLen):
+            b = xBin[I] = bind(I)
+            self.ASSERT_ISBOOL(b)
+        t = self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
+        self.ASSERT_EQ(x, t)
+        return xBin
+    def DIVMOD(self, x, y, qLen, rLen):
         if isinstance(x, int) and isinstance(y, int):
-            assert 0 <= x // y < 2 ** Q
-            assert 0 <= x % y < 2 ** R
-            return [x // y >> I & 1 for I in range(Q)], [x % y >> I & 1 for I in range(R)]
+            assert 0 <= x // y < 2 ** qLen
+            assert 0 <= x % y < 2 ** rLen
+            return [x // y >> I & 1 for I in range(qLen)], [x % y >> I & 1 for I in range(rLen)]
         if isinstance(x, int):
-            x = {self.e: x}
+            x = {0: x}
         if isinstance(y, int):
-            y = {self.e: y}
+            y = {0: y}
         q = self.__bind(lambda getw, **args: getw(x) // getw(y))
         r = self.__bind(lambda getw, **args: getw(x) % getw(y))
         self.ASSERT(q, y, self.SUB(x, r)) # assert y * q == x - r
-        t = self.ADD(self.SUB(r, y), 2 ** R)
-        qBin = self.BINARY(q, Q) # assert 0 <= q < 2 ** Q
-        rBin = self.BINARY(r, R) # assert 0 <= r < 2 ** R
-        tBin = self.BINARY(t, R) # assert y - 2 ** R <= r < y
-        return qBin, rBin
-    def DIVMSW(self, x, Y, Q):
-        if isinstance(x, int):
-            assert 0 <= x // Y < 2 ** Q
-            return [x // Y >> I & 1 for I in range(Q)], {K: int(x % Y == K) for K in range(Y)}
-        q = self.__bind(lambda getw, **args: getw(x) // Y)
-        r = self.__bind(lambda getw, **args: getw(x) % Y)
-        self.ASSERT(q, Y, self.SUB(x, r)) # assert y * q == x - r
-        qBin = self.BINARY(q, Q) # assert 0 <= q < 2 ** Q
-        rChk = self.SWITCH(r, range(Y)) # assert r in range(Y)
-        return qBin, rChk
+        self.ASSERT_GE(q, 0, qLen)
+        self.ASSERT_GE(r, 0, rLen)
+        self.ASSERT_LT(r, y, rLen)
+        return q, r
     def BOOL(self, x):
         if isinstance(x, int):
             return pow(x, P - 1, P)
@@ -221,7 +195,7 @@ class Program:
         return self.SUM(self.MUL(Dict[K], iChk[K]) for K in Dict)
     def SETITEM(self, Dict, iChk, v):
         for K in Dict:
-            Dict[K] = self.ADD(Dict[K], self.MUL(iChk[K], self.SUB(v, Dict[K])))
+            Dict[K] = self.IF(iChk[K], v, Dict[K])
     def INDEX(self, List, iBin):
         for b in iBin:
             List = [self.IF(b, r, l) for l, r in zip(List[0::2], List[1::2])]
@@ -243,37 +217,41 @@ class Program:
         return [self.OR(a, b) for a, b in zip(xBin, yBin, strict = True)]
     def BITXOR(self, xBin, yBin):
         return [self.XOR(a, b) for a, b in zip(xBin, yBin, strict = True)]
-    def BINADD(self, xBin, yBin, c, L):
-        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.ADD(0, b) for b in yBin), self.ADD(0, c))), L + 1)
-        return zBin[:L], self.ADD(0, zBin[L])
-    def BINSUB(self, xBin, yBin, c, L):
-        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.SUB(1, b) for b in yBin), self.SUB(1, c))), L + 1)
-        return zBin[:L], self.SUB(1, zBin[L])
-    def BINMUL(self, xBin, yBin, cBin, dBin, L):
-        zBin = self.BINARY(self.ADD(self.MUL(self.VAL(xBin), self.VAL(yBin)), self.ADD(self.VAL(cBin), self.VAL(dBin))), L * 2)
-        return zBin[:L], zBin[L:]
-    def GE_0(self, x, L):
-        return self.BINARY(self.ADD(2 ** L, x), L + 1)[L]
-    def LE_0(self, x, L):
-        return self.BINARY(self.SUB(2 ** L, x), L + 1)[L]
-    def GT_0(self, x, L):
-        return self.BINARY(self.ADD(2 ** L - 1, x), L + 1)[L]
-    def LT_0(self, x, L):
-        return self.BINARY(self.SUB(2 ** L - 1, x), L + 1)[L]
-    def ASSERT_LT_0(self, x, L):
-        self.BINARY(self.ADD(2 ** L, x), L)
-    def ASSERT_GT_0(self, x, L):
-        self.BINARY(self.SUB(2 ** L, x), L)
-    def ASSERT_LE_0(self, x, L):
-        self.BINARY(self.ADD(2 ** L - 1, x), L)
-    def ASSERT_GE_0(self, x, L):
-        self.BINARY(self.SUB(2 ** L - 1, x), L)
-    def ASSERT_EQ_0(self, x):
-        self.ASSERT(0, 0, x)
-    def ASSERT_NE_0(self, x):
-        self.DIV(1, x)
-    def ASSERT_BOOL(self, x):
+    def BINADD(self, xBin, yBin, c, sLen):
+        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.ADD(0, b) for b in yBin), self.ADD(0, c))), sLen + 1)
+        return zBin[:sLen], self.ADD(0, zBin[sLen])
+    def BINSUB(self, xBin, yBin, c, sLen):
+        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.SUB(1, b) for b in yBin), self.SUB(1, c))), sLen + 1)
+        return zBin[:sLen], self.SUB(1, zBin[sLen])
+    def BINMUL(self, xBin, yBin, cBin, dBin, sLen):
+        zBin = self.BINARY(self.ADD(self.MUL(self.VAL(xBin), self.VAL(yBin)), self.ADD(self.VAL(cBin), self.VAL(dBin))), sLen * 2)
+        return zBin[:sLen], zBin[sLen:]
+    def GE(self, x, y, dLen): # 0 <= x - y < 2 ** dLen
+        return self.BINARY(self.ADD(2 ** dLen, self.SUB(x, y)), dLen + 1)[dLen]
+    def LE(self, x, y, dLen): # 0 <= y - x < 2 ** dLen
+        return self.BINARY(self.ADD(2 ** dLen, self.SUB(y, x)), dLen + 1)[dLen]
+    def GT(self, x, y, dLen): # 0 < x - y <= 2 ** dLen
+        return self.BINARY(self.ADD(2 ** dLen, self.SUB(self.SUB(x, y), 1)), dLen + 1)[dLen]
+    def LT(self, x, y, dLen): # 0 < y - x <= 2 ** dLen
+        return self.BINARY(self.ADD(2 ** dLen, self.SUB(self.SUB(y, x), 1)), dLen + 1)[dLen]
+    def ASSERT_GE(self, x, y, dLen): # 0 <= x - y < 2 ** dLen
+        return self.BINARY(self.SUB(x, y), dLen)
+    def ASSERT_LE(self, x, y, dLen): # 0 <= y - x < 2 ** dLen
+        return self.BINARY(self.SUB(y, x), dLen)
+    def ASSERT_GT(self, x, y, dLen): # 0 < x - y <= 2 ** dLen
+        return self.BINARY(self.SUB(self.SUB(x, y), 1), dLen)
+    def ASSERT_LT(self, x, y, dLen): # 0 < y - x <= 2 ** dLen
+        return self.BINARY(self.SUB(self.SUB(y, x), 1), dLen)
+    def ASSERT_EQ(self, x, y):
+        self.ASSERT(1, x, y)
+    def ASSERT_NE(self, x, y):
+        self.DIV(1, self.SUB(x, y))
+    def ASSERT_ISBOOL(self, x):
         self.ASSERT(x, x, x)
+    def ASSERT_CHK(self, x, Keys):
+        self.SWITCH(x, Keys)
+    def ASSERT_LEN(self, x, xLen):
+        self.BINARY(x, xLen)
 def dot(Mips, w):
     return [sum(i * j for i, j in zip(u, w)) % P for u in zip(*Mips)]
 if __name__ == '__main__':
@@ -287,7 +265,7 @@ if __name__ == '__main__':
     yBin = pro.BINARY(y, 16) # binary representation of y
     tBin = [pro.XOR(a, b) for a, b in zip(xBin, yBin)] # binary representation of x ^ y
     t = pro.VAL(tBin) # x ^ y
-    qBin, rBin = pro.DIVMOD(t, z, 16, 16) # x // y, x % y
+    q, r = pro.DIVMOD(t, z, 16, 16) # x // y, x % y
     print('Number of constraints:', pro.con_count())
     print('Number of dimensions:', pro.dim_count())
     with Timer('Calculating R1CS and QAP...'):
