@@ -38,39 +38,39 @@ class Program:
     def compile_to_QAP(self):
         M = self.dim_count()
         N = self.con_count()
-        A = [[] for _ in range(M)]
-        B = [[] for _ in range(M)]
-        C = [[] for _ in range(M)]
+        A = [{} for _ in range(M)]
+        B = [{} for _ in range(M)]
+        C = [{} for _ in range(M)]
         for i, con in enumerate(self.cons, 1):
             a, b, c = con
             for k, v in a.items():
-                A[k].append((i, v))
+                A[k][i] = v
             for k, v in b.items():
-                B[k].append((i, v))
+                B[k][i] = v
             for k, v in c.items():
-                C[k].append((i, v))
+                C[k][i] = v
         LLUT = [1]
         RLUT = [1]
-        poly = [1]
+        prod = [1]
         for k in range(1, N + 1):
             LLUT.append(LLUT[-1] * +k % P)
             RLUT.append(RLUT[-1] * -k % P)
-            poly = [(v - k * u) % P for u, v in zip(poly + [0], [0] + poly)]
-        def lagrange(points, q):
-            coeffs = [0 for _ in range(N)]
-            for xj, yj in points:
-                dj = LLUT[xj - 1] * RLUT[N - xj] % P
-                kj = util.modinv(dj, q)
-                rj = util.modinv(xj, q)
-                temp = 0
+            prod = [(v - k * u) % P for u, v in zip(prod + [0], [0] + prod)]
+        def lagrange(points):
+            poly = [0 for _ in range(N)]
+            for x, y in points.items():
+                d = LLUT[x - 1] * RLUT[N - x] % P
+                k = util.modinv(d, P)
+                r = util.modinv(x, P)
+                t = 0
                 for i in range(N):
-                    temp = (temp - poly[i]) * rj % q
-                    coeffs[i] = (coeffs[i] + yj * kj * temp) % q
-            return coeffs
-        Aips = [lagrange(Apts, P) for Apts in A]
-        Bips = [lagrange(Bpts, P) for Bpts in B]
-        Cips = [lagrange(Cpts, P) for Cpts in C]
-        return poly, Aips, Bips, Cips
+                    t = (t - prod[i]) * r % P
+                    poly[i] = (poly[i] + y * k * t) % P
+            return poly
+        Aips = [lagrange(Apts) for Apts in A]
+        Bips = [lagrange(Bpts) for Bpts in B]
+        Cips = [lagrange(Cpts) for Cpts in C]
+        return prod, Aips, Bips, Cips
     def proof(self, **args):
         M = self.dim_count()
         witness = [0 for _ in range(M)]
@@ -211,6 +211,10 @@ class Program:
     def XOR(self, x, y):
         return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(x, 2)), self.SUB(1, self.MUL(y, 2)))), 2)
     def IF(self, b, t, f):
+        if isinstance(t, list) and isinstance(f, list):
+            return list(self.IF(b, u, v) for u, v in zip(t, f))
+        if isinstance(t, tuple) and isinstance(f, tuple):
+            return tuple(self.IF(b, u, v) for u, v in zip(t, f))
         return self.ADD(self.MUL(b, self.SUB(t, f)), f)
     def GETDI(self, Dict, iChk):
         return self.SUM(self.MUL(Dict[K], iChk[K]) for K in Dict)
@@ -262,13 +266,13 @@ class Program:
         return self.BINARY(self.ADD(2 ** dLen, self.SUB(self.SUB(x, y), 1)), dLen + 1)[dLen]
     def LT(self, x, y, dLen): # 0 < y - x <= 2 ** dLen
         return self.BINARY(self.ADD(2 ** dLen, self.SUB(self.SUB(y, x), 1)), dLen + 1)[dLen]
-    def ASSERT_GE(self, x, y, dLen): # 0 <= x - y < 2 ** dLen
+    def ASSERT_GE(self, x, y, dLen): # assert 0 <= x - y < 2 ** dLen
         return self.BINARY(self.SUB(x, y), dLen)
-    def ASSERT_LE(self, x, y, dLen): # 0 <= y - x < 2 ** dLen
+    def ASSERT_LE(self, x, y, dLen): # assert 0 <= y - x < 2 ** dLen
         return self.BINARY(self.SUB(y, x), dLen)
-    def ASSERT_GT(self, x, y, dLen): # 0 < x - y <= 2 ** dLen
+    def ASSERT_GT(self, x, y, dLen): # assert 0 < x - y <= 2 ** dLen
         return self.BINARY(self.SUB(self.SUB(x, y), 1), dLen)
-    def ASSERT_LT(self, x, y, dLen): # 0 < y - x <= 2 ** dLen
+    def ASSERT_LT(self, x, y, dLen): # assert 0 < y - x <= 2 ** dLen
         return self.BINARY(self.SUB(self.SUB(y, x), 1), dLen)
     def ASSERT_EQ(self, x, y):
         self.ASSERT(1, x, y)
@@ -286,7 +290,6 @@ if __name__ == '__main__':
     with Timer('Generating program...'):
         pro = Program()
         SBox = list(range(256))
-        SDct = dict(enumerate(range(256)))
         jBin = pro.BINARY(0, 8)
         for i in range(256):
             iBin = pro.BINARY(i, 8)

@@ -74,10 +74,10 @@ def lagrange(points, q):
     # input: n points, each of which is a pair of x and y
     # output: coefficients list of the n - 1 degree polynomial that passes through all the points
     n = len(points)
-    coeffs = [0 for _ in range(n)]
-    poly = [1]
+    poly = [0] * n
+    prod = [1]
     for x, y in points:
-        poly = [(v - x * u) % q for u, v in zip(poly + [0], [0] + poly)]
+        prod = [(v - x * u) % q for u, v in zip(prod + [0], [0] + prod)]
     for j, (xj, yj) in enumerate(points):
         dj = 1
         for m, (xm, ym) in enumerate(points):
@@ -87,9 +87,9 @@ def lagrange(points, q):
         rj = modinv(xj, q)
         temp = 0
         for i in range(n):
-            temp = (temp - poly[i]) * rj % q
-            coeffs[i] = (coeffs[i] + yj * kj * temp) % q
-    return coeffs
+            temp = (temp - prod[i]) * rj % q
+            poly[i] = (poly[i] + yj * kj * temp) % q
+    return poly
 def polyadd(a, b, m):
     res = [0] * max(len(a), len(b))
     for i in range(len(a)):
