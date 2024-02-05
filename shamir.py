@@ -9,19 +9,19 @@ def genshares(secret, k, n):
     coeffs.append(random.randrange(1, Q))
     return [(x, sum(c * x ** i for i, c in enumerate(coeffs)) % Q) for x in util.sample(1, Q, n)]
 def recsecret(shares):
-    qsum = 0
-    prod = 1
+    Y = 0
+    Z = 1
     for x, y in shares:
-        prod = prod * x % Q
-    for j, (xj, yj) in enumerate(shares):
-        dj = 1
-        for m, (xm, ym) in enumerate(shares):
+        Z = Z * x % Q
+    for j, (x, y) in enumerate(shares):
+        d = 1
+        for m, (u, v) in enumerate(shares):
             if m != j:
-                dj = dj * (xm - xj) % Q
-        kj = util.modinv(dj, Q)
-        rj = util.modinv(xj, Q)
-        qsum = (qsum + yj * kj * rj) % Q
-    return qsum * prod % Q
+                d = d * (u - x) % Q
+        k = util.modinv(d, Q)
+        r = util.modinv(x, Q)
+        Y = (Y + y * k * r) % Q
+    return Y * Z % Q
 if __name__ == '__main__':
     print('GF({})'.format(Q))
     K, N = 3, 5

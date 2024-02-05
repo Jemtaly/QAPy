@@ -74,22 +74,23 @@ def lagrange(points, q):
     # input: n points, each of which is a pair of x and y
     # output: coefficients list of the n - 1 degree polynomial that passes through all the points
     n = len(points)
-    poly = [0] * n
-    prod = [1]
+    T = [0 for _ in range(n)]
+    Y = [0 for _ in range(n)]
+    Z = [1]
     for x, y in points:
-        prod = [(v - x * u) % q for u, v in zip(prod + [0], [0] + prod)]
-    for j, (xj, yj) in enumerate(points):
-        dj = 1
-        for m, (xm, ym) in enumerate(points):
+        Z = [(v - x * u) % q for u, v in zip(Z + [0], [0] + Z)]
+    for j, (x, y) in enumerate(points):
+        d = 1
+        for m, (u, v) in enumerate(points):
             if m != j:
-                dj = dj * (xj - xm) % q
-        kj = modinv(dj, q)
-        rj = modinv(xj, q)
-        temp = 0
+                d = d * (x - u) % q
+        k = modinv(d, q)
+        r = modinv(x, q)
+        t = 0
         for i in range(n):
-            temp = (temp - prod[i]) * rj % q
-            poly[i] = (poly[i] + yj * kj * temp) % q
-    return poly
+            T[i] = t = (t - Z[i]) * r % q
+            Y[i] = (Y[i] + y * k * t) % q
+    return Y
 def polyadd(a, b, m):
     res = [0] * max(len(a), len(b))
     for i in range(len(a)):
@@ -124,7 +125,7 @@ def polydm(a, b, m):
 def polyshow(coeffs):
     return ' + '.join('{} * x ** {}'.format(c, i) for i, c in enumerate(coeffs) if c != 0) or '0'
 def polyval(coeffs, x, q):
-    return sum(c * x ** i for i, c in enumerate(coeffs)) % q
+    return sum(c * pow(x, i, q) for i, c in enumerate(coeffs)) % q
 def chkprime(n, k = 16):
     if n == 2:
         return True

@@ -1,7 +1,19 @@
 #!/usr/bin/python3
 import time
 import util
+import random
+import ecc
 P = util.genprime(64)
+G = random.randrange(1, P)
+H = random.randrange(1, P)
+def add(X, Y):
+    return (X + Y) % P
+def sub(X, Y):
+    return (X - Y) % P
+def dot(X, n):
+    return X * n % P
+def mul(X, Y):
+    return X * Y % P
 class Timer:
     def __init__(self, text):
         self.text = text
@@ -20,74 +32,66 @@ class Program:
         return len(self.cons)
     def dim_count(self):
         return len(self.dims)
-    def compile_to_R1CS(self):
+    def QAP(self, X = None):
         M = self.dim_count()
         N = self.con_count()
-        A = [[0 for _ in range(M)] for _ in range(N)]
-        B = [[0 for _ in range(M)] for _ in range(N)]
-        C = [[0 for _ in range(M)] for _ in range(N)]
-        for i, con in enumerate(self.cons):
-            a, b, c = con
-            for k, v in a.items():
-                A[i][k] = v
-            for k, v in b.items():
-                B[i][k] = v
-            for k, v in c.items():
-                C[i][k] = v
-        return A, B, C
-    def compile_to_QAP(self):
-        M = self.dim_count()
-        N = self.con_count()
+        LLUT = [1 for _ in range(N)]
+        RLUT = [1 for _ in range(N)]
+        for x in range(1, N):
+            LLUT[x] = LLUT[x - 1] * (x - 0) % P
+            RLUT[x] = RLUT[x - 1] * (0 - x) % P
+        if X is None:
+            Z = [1]
+            for x in range(1, N + 1):
+                Z = [(v - x * u) % P for u, v in zip(Z + [0], [0] + Z)]
+            def lagrange(points):
+                T = [0 for _ in range(N)]
+                Y = [0 for _ in range(N)]
+                for x, y in points.items():
+                    d = LLUT[x - 1] * RLUT[N - x] % P
+                    k = util.modinv(d, P)
+                    r = util.modinv(x, P)
+                    t = 0
+                    for i in range(N):
+                        T[i] = t = (t - Z[i]) * r % P
+                        Y[i] = (Y[i] + y * k * t) % P
+                return Y
+        else:
+            Z = 1
+            for x in range(1, N + 1):
+                Z = Z * (X - x) % P
+            def lagrange(points):
+                Y = 0
+                for x, y in points.items():
+                    d = LLUT[x - 1] * RLUT[N - x] % P
+                    e = (X - x) % P
+                    k = util.modinv(d, P)
+                    r = util.modinv(e, P)
+                    Y = (Y + y * k * r) % P
+                return Y * Z % P
         A = [{} for _ in range(M)]
         B = [{} for _ in range(M)]
         C = [{} for _ in range(M)]
-        for i, con in enumerate(self.cons, 1):
+        for x, con in enumerate(self.cons, 1):
             a, b, c = con
-            for k, v in a.items():
-                A[k][i] = v
-            for k, v in b.items():
-                B[k][i] = v
-            for k, v in c.items():
-                C[k][i] = v
-        LLUT = [1]
-        RLUT = [1]
-        prod = [1]
-        for k in range(1, N + 1):
-            LLUT.append(LLUT[-1] * +k % P)
-            RLUT.append(RLUT[-1] * -k % P)
-            prod = [(v - k * u) % P for u, v in zip(prod + [0], [0] + prod)]
-        def lagrange(points):
-            poly = [0 for _ in range(N)]
-            for x, y in points.items():
-                d = LLUT[x - 1] * RLUT[N - x] % P
-                k = util.modinv(d, P)
-                r = util.modinv(x, P)
-                t = 0
-                for i in range(N):
-                    t = (t - prod[i]) * r % P
-                    poly[i] = (poly[i] + y * k * t) % P
-            return poly
-        Aips = [lagrange(Apts) for Apts in A]
-        Bips = [lagrange(Bpts) for Bpts in B]
-        Cips = [lagrange(Cpts) for Cpts in C]
-        return prod, Aips, Bips, Cips
-    def proof(self, **args):
-        M = self.dim_count()
-        witness = [0 for _ in range(M)]
+            for d, y in a.items():
+                A[d][x] = y
+            for d, y in b.items():
+                B[d][x] = y
+            for d, y in c.items():
+                C[d][x] = y
+        As = [lagrange(points) for points in A]
+        Bs = [lagrange(points) for points in B]
+        Cs = [lagrange(points) for points in C]
+        return As, Bs, Cs, Z
+    def witness(self, **args):
+        witness = []
         getw = lambda x: sum(witness[k] * v for k, v in x.items()) % P
-        for i, func in enumerate(self.dims):
-            witness[i] = func(getw, **args)
+        for func in self.dims:
+            witness.append(func(getw, **args))
         for a, b, c in self.cons:
             assert getw(a) * getw(b) % P == getw(c)
         return witness
-    @staticmethod
-    def verify(poly, Aips, Bips, Cips, witness):
-        a = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Aips)]
-        b = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Bips)]
-        c = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Cips)]
-        d = util.polysub(util.polymul(a, b, P), c, P)
-        q, r = util.polydm(d, poly, P)
-        return not any(r)
     def __bind(self, func, pubname = None):
         i = len(self.dims)
         self.dims.append(func)
@@ -284,10 +288,17 @@ class Program:
         self.SWITCH(x, Keys)
     def ASSERT_LEN(self, x, xLen):
         self.BINARY(x, xLen)
+    @staticmethod
+    def verify(poly, Aips, Bips, Cips, witness):
+        a = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Aips)]
+        b = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Bips)]
+        c = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Cips)]
+        d = util.polysub(util.polymul(a, b, P), c, P)
+        q, r = util.polydm(d, poly, P)
+        return not any(r)
 if __name__ == '__main__':
     print('GF({})'.format(P))
-    # Example Program
-    with Timer('Generating program...'):
+    with Timer('Compiling program...'):
         pro = Program()
         SBox = list(range(256))
         jBin = pro.BINARY(0, 8)
@@ -307,27 +318,74 @@ if __name__ == '__main__':
         yBin = pro.BINARY(0, 8)
         for i in range(256):
             xBin = pro.BINADD(xBin, eBin, 0, 8)[0]
-            a = pro.GETLI(SBox, xBin)
-            aBin = pro.BINARY(a, 8)
+            Ax = pro.GETLI(SBox, xBin)
+            aBin = pro.BINARY(Ax, 8)
             yBin = pro.BINADD(yBin, aBin, 0, 8)[0]
-            b = pro.GETLI(SBox, yBin)
-            bBin = pro.BINARY(b, 8)
-            pro.SETLI(SBox, xBin, b)
-            pro.SETLI(SBox, yBin, a)
+            Bx = pro.GETLI(SBox, yBin)
+            bBin = pro.BINARY(Bx, 8)
+            pro.SETLI(SBox, xBin, Bx)
+            pro.SETLI(SBox, yBin, Ax)
             sBin = pro.BINADD(aBin, bBin, 0, 8)[0]
             o = pro.GETLI(SBox, sBin)
             pro.RET('r[0x{:02x}]'.format(i), o)
     print('Number of constraints:', pro.con_count())
     print('Number of dimensions:', pro.dim_count())
-    with Timer('Calculating R1CS and QAP...'):
-        u, A, B, C = pro.compile_to_QAP()
-    with Timer('Calculating witness...'):
+    with Timer('Setting up QAP...'):
+        N = pro.con_count()
+        τ = random.randrange(1, P) # toxic waste
+        α = random.randrange(1, P) # toxic waste
+        β = random.randrange(1, P) # toxic waste
+        γ = random.randrange(1, P) # toxic waste
+        δ = random.randrange(1, P) # toxic waste
+        Γ = util.modinv(γ, P) # toxic waste
+        Δ = util.modinv(δ, P) # toxic waste
+        Anm, Bnm, Cnm, Zn = pro.QAP()
+        Aτm = [util.polyval(An, τ, P) for An in Anm] # toxic waste
+        Bτm = [util.polyval(Bn, τ, P) for Bn in Bnm] # toxic waste
+        Cτm = [util.polyval(Cn, τ, P) for Cn in Cnm] # toxic waste
+        Zτ = util.polyval(Zn, τ, P) # toxic waste
+        αG = dot(G, α)
+        βG = dot(G, β)
+        δG = dot(G, δ)
+        βH = dot(H, β)
+        γH = dot(H, γ)
+        δH = dot(H, δ)
+        UGm = [dot(G, (β * Aτ + α * Bτ + Cτ) * Γ) for i, (Aτ, Bτ, Cτ) in enumerate(zip(Aτm, Bτm, Cτm)) if (i in pro.pubs) == 1]
+        VGm = [dot(G, (β * Aτ + α * Bτ + Cτ) * Δ) for i, (Aτ, Bτ, Cτ) in enumerate(zip(Aτm, Bτm, Cτm)) if (i in pro.pubs) == 0]
+        XGn = [dot(G, pow(τ, i, P)) for i in range(N)]
+        XHn = [dot(H, pow(τ, i, P)) for i in range(N)]
+        TGn = [dot(G, pow(τ, i, P) * Δ * Zτ) for i in range(N - 1)]
+        del α, β, γ, δ, Γ, Δ, Aτm, Bτm, Cτm, Zτ
+    with Timer('Generating witness...'):
         args = {'k[0x{:02x}]'.format(i): i for i in range(256)}
-        w = pro.proof(**args)
-    print('witness = [{}]'.format(', '.join('{} = {}'.format(pro.pubs[i], v) if i in pro.pubs else '{}'.format(v) for i, v in enumerate(w))))
-    with Timer('Verifying witness...'):
-        passed = Program.verify(u, A, B, C, w)
-    if passed:
+        wm = pro.witness(**args)
+        um = [w for i, w in enumerate(wm) if (i in pro.pubs) == 1]
+        vm = [w for i, w in enumerate(wm) if (i in pro.pubs) == 0]
+        r = random.randrange(1, P)
+        s = random.randrange(1, P)
+        Awn = [sum(A * w for (A, w) in zip(Am, wm)) for Am in zip(*Anm)]
+        Bwn = [sum(B * w for (B, w) in zip(Bm, wm)) for Bm in zip(*Bnm)]
+        Cwn = [sum(C * w for (C, w) in zip(Cm, wm)) for Cm in zip(*Cnm)]
+        Qn, Rn = util.polydm(util.polysub(util.polymul(Awn, Bwn, P), Cwn, P), Zn, P)
+        AG = add(αG, dot(δG, r))
+        for Aw, XG in zip(Awn, XGn):
+            AG = add(AG, dot(XG, Aw))
+        BG = add(βG, dot(δG, s))
+        for Bw, XG in zip(Bwn, XGn):
+            BG = add(BG, dot(XG, Bw))
+        BH = add(βH, dot(δH, s))
+        for Bw, XH in zip(Bwn, XHn):
+            BH = add(BH, dot(XH, Bw))
+        CG = sub(add(dot(AG, s), dot(BG, r)), dot(δG, r * s))
+        for Q, TG in zip(Qn, TGn):
+            CG = add(CG, dot(TG, Q))
+        for v, VG in zip(vm, VGm):
+            CG = add(CG, dot(VG, v))
+    with Timer('Verifying...'):
+        DG = dot(G, 0)
+        for u, UG in zip(um, UGm):
+            DG = add(DG, dot(UG, u))
+    if mul(AG, BH) == add(mul(αG, βH), add(mul(DG, γH), mul(CG, δH))):
         print('Verification passed!')
     else:
         print('Verification failed!')
