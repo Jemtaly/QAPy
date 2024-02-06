@@ -26,14 +26,17 @@ class Timer:
         print('{:.3f} sec'.format(self.end - self.beg))
 class Program:
     def __init__(self):
-        self.cons = []
-        self.dims = [lambda getw, **args: 1]
+        self.cons = [] # constraints
+        self.dims = [lambda getw, **args: 1] # variables
         self.pubs = {0: 'unit'}
     def con_count(self):
         return len(self.cons)
     def dim_count(self):
         return len(self.dims)
     def QAP(self, X = None, wm = None):
+        # if both X and wm are None, return the QAP polynomials A1, A2, ..., Am, B1, B2, ..., Bm, C1, C2, ..., Cm and Z
+        # if wm is not None, return the its dot product with the polynomials (excluding the last polynomial, Z)
+        # if X is not None, return the evaluation of the polynomials at X
         M = self.dim_count()
         N = self.con_count()
         LLUT = [1 for _ in range(N)]
@@ -102,6 +105,7 @@ class Program:
             Cw = lagrange(cw)
             return Aw, Bw, Cw, Z
     def witness(self, **args):
+        # compute the witness vector for the given input
         wm = []
         getw = lambda x: sum(wm[k] * v for k, v in x.items()) % P
         for func in self.dims:
@@ -308,6 +312,7 @@ class Program:
 if __name__ == '__main__':
     print('GF({})'.format(P))
     with Timer('Compiling program...'):
+        # example: RC4 key scheduling algorithm
         pro = Program()
         SBox = list(range(256))
         jBin = pro.BINARY(0, 8)
@@ -348,7 +353,7 @@ if __name__ == '__main__':
         δ = random.randrange(1, P)
         Γ = util.modinv(γ, P)
         Δ = util.modinv(δ, P)
-        Aτm, Bτm, Cτm, Zτ = pro.QAP(X = τ)
+        Aτm, Bτm, Cτm, Zτ = pro.QAP(X = τ) # If we only need to evaluate the polynomials at a single point, the time complexity is O(N)
         αG = dot(G, α)
         βG = dot(G, β)
         δG = dot(G, δ)
@@ -368,7 +373,7 @@ if __name__ == '__main__':
         vm = [w for i, w in enumerate(wm) if (i in pro.pubs) == 0]
         r = random.randrange(1, P)
         s = random.randrange(1, P)
-        Awn, Bwn, Cwn, Zn = pro.QAP(wm = wm) # O(n ** 2) time complexity
+        Awn, Bwn, Cwn, Zn = pro.QAP(wm = wm) # this step is quite expensive, since we need to evaluate the coefficients of the polynomials, which takes O(N ** 2) time
         Qn, Rn = util.polydm(util.polysub(util.polymul(Awn, Bwn, P), Cwn, P), Zn, P)
         AG = add(αG, dot(δG, r))
         for Aw, XG in zip(Awn, XGn):
