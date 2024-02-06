@@ -34,9 +34,9 @@ class Program:
     def dim_count(self):
         return len(self.dims)
     def QAP(self, X = None, wm = None):
-        # if both X and wm are None, return the QAP polynomials A1, A2, ..., Am, B1, B2, ..., Bm, C1, C2, ..., Cm and Z
-        # if wm is not None, return the its dot product with the polynomials (excluding the last polynomial, Z)
-        # if X is not None, return the evaluation of the polynomials at X
+        # if both X and wm are None, return the QAP polynomials Am[0], ..., Am[m - 1], Bm[0], ..., Bm[m - 1], Cm[0], ..., Cm[m - 1] and Z
+        # if wm is not None, return 4 polynomials Aw = Π(Am[i] * wm[i]), Bw = Π(Bm[i] * wm[i]), Cw = Π(Cm[i] * wm[i]) and Z
+        # if X is not None, return the value of the polynomials at X
         M = self.dim_count()
         N = self.con_count()
         LLUT = [1 for _ in range(N)]
