@@ -6,6 +6,7 @@ import ecc
 P = util.genprime(64)
 G = random.randrange(1, P)
 H = random.randrange(1, P)
+# Todo: change the following functions' implementation from finite field to elliptic curve
 def add(X, Y):
     return (X + Y) % P
 def sub(X, Y):
@@ -32,7 +33,7 @@ class Program:
         return len(self.cons)
     def dim_count(self):
         return len(self.dims)
-    def QAP(self, X = None):
+    def QAP(self, X = None, wm = None):
         M = self.dim_count()
         N = self.con_count()
         LLUT = [1 for _ in range(N)]
@@ -64,34 +65,50 @@ class Program:
                 Y = 0
                 for x, y in points.items():
                     d = LLUT[x - 1] * RLUT[N - x] % P
-                    e = (X - x) % P
                     k = util.modinv(d, P)
-                    r = util.modinv(e, P)
+                    r = util.modinv(X - x, P)
                     Y = (Y + y * k * r) % P
                 return Y * Z % P
-        A = [{} for _ in range(M)]
-        B = [{} for _ in range(M)]
-        C = [{} for _ in range(M)]
-        for x, con in enumerate(self.cons, 1):
-            a, b, c = con
-            for d, y in a.items():
-                A[d][x] = y
-            for d, y in b.items():
-                B[d][x] = y
-            for d, y in c.items():
-                C[d][x] = y
-        As = [lagrange(points) for points in A]
-        Bs = [lagrange(points) for points in B]
-        Cs = [lagrange(points) for points in C]
-        return As, Bs, Cs, Z
+        if wm is None:
+            am = [{} for _ in range(M)]
+            bm = [{} for _ in range(M)]
+            cm = [{} for _ in range(M)]
+            for x, con in enumerate(self.cons, 1):
+                a, b, c = con
+                for d, y in a.items():
+                    am[d][x] = y
+                for d, y in b.items():
+                    bm[d][x] = y
+                for d, y in c.items():
+                    cm[d][x] = y
+            Am = [lagrange(a) for a in am]
+            Bm = [lagrange(b) for b in bm]
+            Cm = [lagrange(c) for c in cm]
+            return Am, Bm, Cm, Z
+        else:
+            aw = {i: 0 for i in range(1, N + 1)}
+            bw = {i: 0 for i in range(1, N + 1)}
+            cw = {i: 0 for i in range(1, N + 1)}
+            for x, con in enumerate(self.cons, 1):
+                a, b, c = con
+                for d, y in a.items():
+                    aw[x] += wm[d] * y
+                for d, y in b.items():
+                    bw[x] += wm[d] * y
+                for d, y in c.items():
+                    cw[x] += wm[d] * y
+            Aw = lagrange(aw)
+            Bw = lagrange(bw)
+            Cw = lagrange(cw)
+            return Aw, Bw, Cw, Z
     def witness(self, **args):
-        witness = []
-        getw = lambda x: sum(witness[k] * v for k, v in x.items()) % P
+        wm = []
+        getw = lambda x: sum(wm[k] * v for k, v in x.items()) % P
         for func in self.dims:
-            witness.append(func(getw, **args))
+            wm.append(func(getw, **args))
         for a, b, c in self.cons:
             assert getw(a) * getw(b) % P == getw(c)
-        return witness
+        return wm
     def __bind(self, func, pubname = None):
         i = len(self.dims)
         self.dims.append(func)
@@ -288,14 +305,6 @@ class Program:
         self.SWITCH(x, Keys)
     def ASSERT_LEN(self, x, xLen):
         self.BINARY(x, xLen)
-    @staticmethod
-    def verify(poly, Aips, Bips, Cips, witness):
-        a = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Aips)]
-        b = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Bips)]
-        c = [sum(i * j for i, j in zip(u, witness)) % P for u in zip(*Cips)]
-        d = util.polysub(util.polymul(a, b, P), c, P)
-        q, r = util.polydm(d, poly, P)
-        return not any(r)
 if __name__ == '__main__':
     print('GF({})'.format(P))
     with Timer('Compiling program...'):
@@ -332,18 +341,14 @@ if __name__ == '__main__':
     print('Number of dimensions:', pro.dim_count())
     with Timer('Setting up QAP...'):
         N = pro.con_count()
-        τ = random.randrange(1, P) # toxic waste
-        α = random.randrange(1, P) # toxic waste
-        β = random.randrange(1, P) # toxic waste
-        γ = random.randrange(1, P) # toxic waste
-        δ = random.randrange(1, P) # toxic waste
-        Γ = util.modinv(γ, P) # toxic waste
-        Δ = util.modinv(δ, P) # toxic waste
-        Anm, Bnm, Cnm, Zn = pro.QAP()
-        Aτm = [util.polyval(An, τ, P) for An in Anm] # toxic waste
-        Bτm = [util.polyval(Bn, τ, P) for Bn in Bnm] # toxic waste
-        Cτm = [util.polyval(Cn, τ, P) for Cn in Cnm] # toxic waste
-        Zτ = util.polyval(Zn, τ, P) # toxic waste
+        τ = random.randrange(1, P)
+        α = random.randrange(1, P)
+        β = random.randrange(1, P)
+        γ = random.randrange(1, P)
+        δ = random.randrange(1, P)
+        Γ = util.modinv(γ, P)
+        Δ = util.modinv(δ, P)
+        Aτm, Bτm, Cτm, Zτ = pro.QAP(X = τ)
         αG = dot(G, α)
         βG = dot(G, β)
         δG = dot(G, δ)
@@ -363,9 +368,7 @@ if __name__ == '__main__':
         vm = [w for i, w in enumerate(wm) if (i in pro.pubs) == 0]
         r = random.randrange(1, P)
         s = random.randrange(1, P)
-        Awn = [sum(A * w for (A, w) in zip(Am, wm)) for Am in zip(*Anm)]
-        Bwn = [sum(B * w for (B, w) in zip(Bm, wm)) for Bm in zip(*Bnm)]
-        Cwn = [sum(C * w for (C, w) in zip(Cm, wm)) for Cm in zip(*Cnm)]
+        Awn, Bwn, Cwn, Zn = pro.QAP(wm = wm) # O(n ** 2) time complexity
         Qn, Rn = util.polydm(util.polysub(util.polymul(Awn, Bwn, P), Cwn, P), Zn, P)
         AG = add(αG, dot(δG, r))
         for Aw, XG in zip(Awn, XGn):
