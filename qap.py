@@ -2,23 +2,15 @@
 import time
 import util
 import random
-import py_ecc
-P = py_ecc.optimized_bls12_381.curve_order
-K = 1
+from py_ecc.optimized_bn128 import G1, G2, curve_order, multiply, add, neg, pairing
+P = curve_order
+K = 1 # maxium exponent of 2 that divides P - 1 (the number of constraints should not exceed K, otherwise FFT cannot be applied)
 while (P - 1) % (K * 2) == 0:
     K = K * 2
 for Z in range(2, P):
     if pow(Z, (P - 1) // 2, P) != 1:
         break
-T = pow(Z, (P - 1) // K, P)
-G = py_ecc.optimized_bls12_381.G1
-H = py_ecc.optimized_bls12_381.G2
-dot = py_ecc.optimized_bls12_381.multiply
-add = py_ecc.optimized_bls12_381.add
-neg = py_ecc.optimized_bls12_381.neg
-mul = py_ecc.optimized_bls12_381.pairing
-Add = py_ecc.optimized_bls12_381.FQ12.__mul__
-Chk = py_ecc.optimized_bls12_381.FQ12.__eq__
+R = pow(Z, (P - 1) // K, P) # primitive K-th root of unity
 class Timer:
     def __init__(self, text):
         self.text = text
@@ -43,13 +35,9 @@ class Program:
         I = 1
         while I < N:
             I = I * 2
-        J = I * 2
-        R = pow(T, K // I, P)
-        S = pow(T, K // J, P)
-        y = x * util.modinv(S, P) % P
-        Zx = pow(x, I, P) - 1
+        S = pow(R, K // I, P) # primitive I-th root of unity
         xI = [pow(x, i, P) for i in range(I)]
-        XI = util.ifft(xI, R, P)
+        XI = util.ifft(xI, S, P)
         AxM = [0 for _ in range(M)]
         BxM = [0 for _ in range(M)]
         CxM = [0 for _ in range(M)]
@@ -60,28 +48,29 @@ class Program:
                 BxM[m] += b * X
             for m, c in cM.items():
                 CxM[m] += c * X
+        Zx = pow(x, I, P) - 1
         Γ = util.modinv(γ, P)
         Δ = util.modinv(δ, P)
-        αG = dot(G, α)
-        βG = dot(G, β)
-        δG = dot(G, δ)
-        βH = dot(H, β)
-        γH = dot(H, γ)
-        δH = dot(H, δ)
-        uGU = [dot(G, (β * Ax + α * Bx + Cx) * Γ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if (m in pro.pubs) == 1]
-        vGV = [dot(G, (β * Ax + α * Bx + Cx) * Δ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if (m in pro.pubs) == 0]
-        xGI = [dot(G, pow(x, i, P)) for i in range(I)]
-        xHI = [dot(H, pow(x, i, P)) for i in range(I)]
-        yGI = [dot(G, pow(y, i, P) * Δ * Zx) for i in range(I - 1)]
-        return αG, βG, δG, βH, γH, δH, uGU, vGV, xGI, xHI, yGI
-    def prove(self, args, r, s, αG, βG, δG, βH, δH, vGV, xGI, xHI, yGI):
+        α1 = multiply(G1, α)
+        β1 = multiply(G1, β)
+        δ1 = multiply(G1, δ)
+        β2 = multiply(G2, β)
+        γ2 = multiply(G2, γ)
+        δ2 = multiply(G2, δ)
+        u1U = [multiply(G1, (β * Ax + α * Bx + Cx) * Γ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if (m in pro.pubs) == 1]
+        v1V = [multiply(G1, (β * Ax + α * Bx + Cx) * Δ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if (m in pro.pubs) == 0]
+        x1I = [multiply(G1, pow(x, i, P)) for i in range(I)]
+        x2I = [multiply(G2, pow(x, i, P)) for i in range(I)]
+        y1I = [multiply(G1, pow(x, i, P) * Δ * Zx) for i in range(I - 1)]
+        return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
+    def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         N = self.con_count()
         I = 1
         while I < N:
             I = I * 2
         J = I * 2
-        R = pow(T, K // I, P)
-        S = pow(T, K // J, P)
+        S = pow(R, K // I, P) # primitive I-th root of unity
+        T = pow(R, K // J, P) # primitive J-th root of unity
         wM = []
         getw = lambda xM: sum(wM[m] * x for m, x in xM.items()) % P
         for func in self.dims:
@@ -95,35 +84,35 @@ class Program:
             awN.append(getw(aM))
             bwN.append(getw(bM))
             cwN.append(getw(cM))
-        AwI = util.ifft(awN + [0] * (I - N), R, P)
-        BwI = util.ifft(bwN + [0] * (I - N), R, P)
-        CwI = util.ifft(cwN + [0] * (I - N), R, P)
-        awJ = util.fft(AwI + [0] * I, S, P)
-        bwJ = util.fft(BwI + [0] * I, S, P)
-        cwJ = util.fft(CwI + [0] * I, S, P)
-        hI = [(P - 1) // 2 * (aw * bw - cw) % P for j, (aw, bw, cw) in enumerate(zip(awJ, bwJ, cwJ)) if j % 2 == 1]
-        HI = util.ifft(hI, R, P)
-        AG = add(αG, dot(δG, r))
-        for Aw, xG in zip(AwI, xGI):
-            AG = add(AG, dot(xG, Aw))
-        BG = add(βG, dot(δG, s))
-        for Bw, xG in zip(BwI, xGI):
-            BG = add(BG, dot(xG, Bw))
-        BH = add(βH, dot(δH, s))
-        for Bw, xH in zip(BwI, xHI):
-            BH = add(BH, dot(xH, Bw))
-        CG = add(add(dot(AG, s), dot(BG, r)), neg(dot(δG, r * s)))
-        for H, hG in zip(HI, yGI):
-            CG = add(CG, dot(hG, H))
-        for v, vG in zip(vV, vGV):
-            CG = add(CG, dot(vG, v))
-        return AG, BH, CG, uU
+        AwI = util.ifft(awN + [0] * (I - N), S, P)
+        BwI = util.ifft(bwN + [0] * (I - N), S, P)
+        CwI = util.ifft(cwN + [0] * (I - N), S, P)
+        awI = util.fft([Aw * pow(T, i, P) for i, Aw in enumerate(AwI)], S, P)
+        bwI = util.fft([Bw * pow(T, i, P) for i, Bw in enumerate(BwI)], S, P)
+        cwI = util.fft([Cw * pow(T, i, P) for i, Cw in enumerate(CwI)], S, P)
+        hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)]
+        HI = [H * pow(T, 0 - i, P) for i, H in enumerate(util.ifft(hI, S, P))]
+        A1 = add(α1, multiply(δ1, r))
+        for Aw, x1 in zip(AwI, x1I):
+            A1 = add(A1, multiply(x1, Aw))
+        B1 = add(β1, multiply(δ1, s))
+        for Bw, x1 in zip(BwI, x1I):
+            B1 = add(B1, multiply(x1, Bw))
+        B2 = add(β2, multiply(δ2, s))
+        for Bw, x2 in zip(BwI, x2I):
+            B2 = add(B2, multiply(x2, Bw))
+        C1 = add(add(multiply(A1, s), multiply(B1, r)), neg(multiply(δ1, r * s)))
+        for H, y1 in zip(HI, y1I):
+            C1 = add(C1, multiply(y1, H))
+        for v, v1 in zip(vV, v1V):
+            C1 = add(C1, multiply(v1, v))
+        return A1, B2, C1, uU
     @staticmethod
-    def verify(αG, βH, γH, δH, uGU, AG, BH, CG, uU):
-        DG = dot(G, 0)
-        for u, uG in zip(uU, uGU):
-            DG = add(DG, dot(uG, u))
-        return Chk(mul(BH, AG), Add(mul(βH, αG), Add(mul(γH, DG), mul(δH, CG))))
+    def verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
+        D1 = multiply(G1, 0)
+        for u, u1 in zip(uU, u1U):
+            D1 = add(D1, multiply(u1, u))
+        return pairing(B2, A1) == pairing(β2, α1) * pairing(γ2, D1) * pairing(δ2, C1)
     def __bind(self, func, pubname = None):
         i = len(self.dims)
         self.dims.append(func)
@@ -188,7 +177,7 @@ class Program:
         for i in List:
             r = self.ADD(r, i)
         return r
-    def SWITCH(self, x, Keys):
+    def SWITC2(self, x, Keys):
         if isinstance(x, int):
             assert x in Keys
             return {K: 1 - pow(x - K, P - 1, P) for K in Keys}
@@ -316,42 +305,42 @@ class Program:
         self.DIV(1, self.SUB(x, y))
     def ASSERT_ISBOOL(self, x):
         self.ASSERT(x, x, x)
-    def ASSERT_CHK(self, x, Keys):
-        self.SWITCH(x, Keys)
+    def ASSERT_C2K(self, x, Keys):
+        self.SWITC2(x, Keys)
     def ASSERT_LEN(self, x, xLen):
         self.BINARY(x, xLen)
 if __name__ == '__main__':
     with Timer('Compiling program...'):
         # example: RC4 key scheduling algorithm
         pro = Program()
-        SBox = list(range(256))
-        jBin = pro.BINARY(0, 8)
-        for i in range(1):
-            iBin = pro.BINARY(i, 8)
-            u = pro.GETLI(SBox, iBin)
-            k = pro.VAR('k[0x{:02x}]'.format(i))
-            tBin = pro.BINARY(u, 8)
-            kBin = pro.BINARY(k, 8)
-            jBin = pro.BINADD(jBin, kBin, 0, 8)[0]
-            jBin = pro.BINADD(jBin, tBin, 0, 8)[0]
-            v = pro.GETLI(SBox, jBin)
-            pro.SETLI(SBox, iBin, v)
-            pro.SETLI(SBox, jBin, u)
-        eBin = pro.BINARY(1, 8)
-        xBin = pro.BINARY(0, 8)
-        yBin = pro.BINARY(0, 8)
-        for i in range(1):
-            xBin = pro.BINADD(xBin, eBin, 0, 8)[0]
-            a = pro.GETLI(SBox, xBin)
-            aBin = pro.BINARY(a, 8)
-            yBin = pro.BINADD(yBin, aBin, 0, 8)[0]
-            b = pro.GETLI(SBox, yBin)
-            bBin = pro.BINARY(b, 8)
-            pro.SETLI(SBox, xBin, b)
-            pro.SETLI(SBox, yBin, a)
-            sBin = pro.BINADD(aBin, bBin, 0, 8)[0]
-            o = pro.GETLI(SBox, sBin)
-            pro.RET('r[0x{:02x}]'.format(i), o)
+        SBox = list(range(256))                    # S := [0, 1, 2, ..., 255]
+        jBin = pro.BINARY(0, 8)                    # j := 0
+        for i in range(256):                       # for each i in 0..255 do
+            iBin = pro.BINARY(i, 8)                #
+            k = pro.VAR('K[0x{:02x}]'.format(i))   #     k := K[i]
+            kBin = pro.BINARY(k, 8)                #
+            jBin = pro.BINADD(jBin, kBin, 0, 8)[0] #     j := j + k & 0xff
+            u = pro.GETLI(SBox, iBin)              #     u := S[i]
+            uBin = pro.BINARY(u, 8)                #
+            jBin = pro.BINADD(jBin, uBin, 0, 8)[0] #     j := j + u & 0xff
+            v = pro.GETLI(SBox, jBin)              #     v := S[j]
+            pro.SETLI(SBox, iBin, v)               #     S[i] := v
+            pro.SETLI(SBox, jBin, u)               #     S[j] := u
+        eBin = pro.BINARY(1, 8)                    # e := 1
+        xBin = pro.BINARY(0, 8)                    # x := 0
+        yBin = pro.BINARY(0, 8)                    # y := 0
+        for i in range(256):                       # for each i in 0..255 do
+            xBin = pro.BINADD(xBin, eBin, 0, 8)[0] #     x := x + 1 & 0xff
+            a = pro.GETLI(SBox, xBin)              #     a := S[x]
+            aBin = pro.BINARY(a, 8)                #
+            yBin = pro.BINADD(yBin, aBin, 0, 8)[0] #     y := y + a & 0xff
+            b = pro.GETLI(SBox, yBin)              #     b := S[y]
+            bBin = pro.BINARY(b, 8)                #
+            pro.SETLI(SBox, xBin, b)               #     S[x] := b
+            pro.SETLI(SBox, yBin, a)               #     S[y] := a
+            sBin = pro.BINADD(aBin, bBin, 0, 8)[0] #     s := a + b & 0xff
+            o = pro.GETLI(SBox, sBin)              #     o := S[s]
+            pro.RET('R[0x{:02x}]'.format(i), o)    #     R[i] := o
     print('Number of constraints:', pro.con_count())
     print('Number of dimensions:', pro.dim_count())
     with Timer('Setting up QAP...'):
@@ -360,15 +349,16 @@ if __name__ == '__main__':
         β = random.randrange(1, P)
         γ = random.randrange(1, P)
         δ = random.randrange(1, P)
-        αG, βG, δG, βH, γH, δH, uGU, vGV, xGI, xHI, yGI = pro.setup(α, β, γ, δ, x)
+        α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = pro.setup(α, β, γ, δ, x)
     with Timer('Generating witness...'):
-        args = {'k[0x{:02x}]'.format(i): i for i in range(256)}
+        args = {'K[0x{:02x}]'.format(i): i for i in range(256)}
         r = random.randrange(1, P)
         s = random.randrange(1, P)
-        AG, BH, CG, uU = pro.prove(args, r, s, αG, βG, δG, βH, δH, vGV, xGI, xHI, yGI)
+        A1, B2, C1, uU = pro.prove(α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s)
     with Timer('Verifying...'):
-        passed = pro.verify(αG, βH, γH, δH, uGU, AG, BH, CG, uU)
+        passed = pro.verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
     if passed:
         print('Verification passed!')
+        print('Revealed variables:', '{{{}}}'.format(', '.join('{} = {}'.format(k, u) for (_, k), u in zip(sorted(pro.pubs.items()), uU))))
     else:
         print('Verification failed!')
