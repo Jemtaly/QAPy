@@ -57,8 +57,8 @@ class Program:
         β2 = multiply(G2, β)
         γ2 = multiply(G2, γ)
         δ2 = multiply(G2, δ)
-        u1U = [multiply(G1, (β * Ax + α * Bx + Cx) * Γ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if (m in pro.pubs) == 1]
-        v1V = [multiply(G1, (β * Ax + α * Bx + Cx) * Δ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if (m in pro.pubs) == 0]
+        u1U = [multiply(G1, (β * Ax + α * Bx + Cx) * Γ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if m     in pro.pubs]
+        v1V = [multiply(G1, (β * Ax + α * Bx + Cx) * Δ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if m not in pro.pubs]
         x1I = [multiply(G1, pow(x, i, P)) for i in range(I)]
         x2I = [multiply(G2, pow(x, i, P)) for i in range(I)]
         y1I = [multiply(G1, pow(x, i, P) * Δ * Zx) for i in range(I - 1)]
@@ -75,8 +75,8 @@ class Program:
         getw = lambda xM: sum(wM[m] * x for m, x in xM.items()) % P
         for func in self.dims:
             wM.append(func(getw, args))
-        uU = [w for m, w in enumerate(wM) if (m in pro.pubs) == 1]
-        vV = [w for m, w in enumerate(wM) if (m in pro.pubs) == 0]
+        uU = [w for m, w in enumerate(wM) if m     in pro.pubs]
+        vV = [w for m, w in enumerate(wM) if m not in pro.pubs]
         awN = []
         bwN = []
         cwN = []
@@ -359,6 +359,6 @@ if __name__ == '__main__':
         passed = pro.verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
     if passed:
         print('Verification passed!')
-        print('Revealed variables:', '{{{}}}'.format(', '.join('{} = {}'.format(k, u) for (_, k), u in zip(sorted(pro.pubs.items()), uU))))
+        print('Public witness:', '{{{}}}'.format(', '.join('{} = {}'.format(k, u) for (_, k), u in zip(sorted(pro.pubs.items()), uU))))
     else:
         print('Verification failed!')
