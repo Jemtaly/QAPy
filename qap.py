@@ -143,7 +143,7 @@ class Program:
             y = {0: y}
         if isinstance(x, int):
             x = {0: x}
-        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)}
+        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)} or 0
     def SUB(self, x, y):
         if isinstance(x, int) and isinstance(y, int):
             return (x - y) % P
@@ -151,8 +151,10 @@ class Program:
             y = {0: y}
         if isinstance(x, int):
             x = {0: x}
-        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)}
+        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)} or 0
     def MUL(self, x, y):
+        if x == 0 or y == 0:
+            return 0
         if isinstance(x, int) and isinstance(y, int):
             return x * y % P
         if isinstance(y, int):
@@ -163,6 +165,10 @@ class Program:
         self.ASSERT(x, y, z)
         return z
     def DIV(self, x, y):
+        if x == 0:
+            return 0
+        if y == 0:
+            raise ZeroDivisionError
         if isinstance(x, int) and isinstance(y, int):
             return x * util.modinv(y, P) % P
         if isinstance(y, int):
@@ -172,12 +178,7 @@ class Program:
         z = self.__bind(lambda getw, args: getw(x) * util.modinv(getw(y), P) % P)
         self.ASSERT(z, y, x)
         return z
-    def SUM(self, List):
-        r = 0
-        for i in List:
-            r = self.ADD(r, i)
-        return r
-    def SWITC2(self, x, Keys):
+    def SWITCH(self, x, Keys):
         if isinstance(x, int):
             assert x in Keys
             return {K: 1 - pow(x - K, P - 1, P) for K in Keys}
@@ -204,6 +205,10 @@ class Program:
         self.ASSERT_EQ(x, t)
         return xBin
     def DIVMOD(self, x, y, qLen, rLen):
+        if x == 0:
+            return [0] * qLen, [0] * rLen
+        if y == 0:
+            raise ZeroDivisionError
         if isinstance(x, int) and isinstance(y, int):
             assert 0 <= x // y < 2 ** qLen
             assert 0 <= x % y < 2 ** rLen
@@ -241,6 +246,11 @@ class Program:
         if isinstance(t, tuple) and isinstance(f, tuple):
             return tuple(self.IF(b, u, v) for u, v in zip(t, f))
         return self.ADD(self.MUL(b, self.SUB(t, f)), f)
+    def SUM(self, List):
+        r = 0
+        for i in List:
+            r = self.ADD(r, i)
+        return r
     def GETDI(self, Dict, iChk):
         return self.SUM(self.MUL(Dict[K], iChk[K]) for K in Dict)
     def SETDI(self, Dict, iChk, v):
@@ -305,8 +315,8 @@ class Program:
         self.DIV(1, self.SUB(x, y))
     def ASSERT_ISBOOL(self, x):
         self.ASSERT(x, x, x)
-    def ASSERT_C2K(self, x, Keys):
-        self.SWITC2(x, Keys)
+    def ASSERT_CHK(self, x, Keys):
+        self.SWITCH(x, Keys)
     def ASSERT_LEN(self, x, xLen):
         self.BINARY(x, xLen)
 if __name__ == '__main__':
