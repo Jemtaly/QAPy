@@ -143,7 +143,8 @@ class Program:
             y = {0: y}
         if isinstance(x, int):
             x = {0: x}
-        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)} or 0
+        z = {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)}
+        return 0 if not z else z[0] if z.keys() == {0} else z
     def SUB(self, x, y):
         if isinstance(x, int) and isinstance(y, int):
             return (x - y) % P
@@ -151,7 +152,8 @@ class Program:
             y = {0: y}
         if isinstance(x, int):
             x = {0: x}
-        return {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)} or 0
+        z = {k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)}
+        return 0 if not z else z[0] if z.keys() == {0} else z
     def MUL(self, x, y):
         if x == 0 or y == 0:
             return 0
@@ -245,6 +247,7 @@ class Program:
             return list(self.IF(b, u, v) for u, v in zip(t, f))
         if isinstance(t, tuple) and isinstance(f, tuple):
             return tuple(self.IF(b, u, v) for u, v in zip(t, f))
+        # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f))
         return self.ADD(self.MUL(b, self.SUB(t, f)), f)
     def SUM(self, List):
         r = 0
@@ -254,19 +257,28 @@ class Program:
     def GETDI(self, Dict, iChk):
         return self.SUM(self.MUL(Dict[K], iChk[K]) for K in Dict)
     def SETDI(self, Dict, iChk, v):
-        for K, b in iChk.items():
-            Dict[K] = self.IF(b, v, Dict[K])
-    def GETLI(self, List, iBin):
-        for b in iBin:
-            List = [self.IF(b, r, l) for l, r in zip(List[0::2], List[1::2])]
-        return List[0]
-    def SETLI(self, List, iBin, v):
-        iDec = [1]
-        for b in iBin:
-            iDec = [self.AND(self.NOT(b), i) for i in iDec] + [self.AND(b, i) for i in iDec]
-        for I, b in enumerate(iDec):
-            List[I] = self.IF(b, v, List[I])
-        return List
+        return {K: self.IF(iChk[K], v, Dict[K]) for K in Dict}
+    def GETLI(self, List, iBin, c = 1):
+        N = 2 ** len(iBin)
+        if len(List) >= N:
+            for b in iBin:
+                List = self.IF(b, List[1::2], List[0::2])
+            return List[0]
+        *iBin, b = iBin
+        N = 2 ** len(iBin)
+        if len(List) <= N:
+            self.ASSERT(c, b, 0)
+            return self.GETLI(List, iBin, c)
+        return self.ADD(self.GETLI(List[:N], iBin, self.AND(c, self.NOT(b))), self.GETLI(List[N:], iBin, self.AND(c, b)))
+    def SETLI(self, List, iBin, v, c = 1):
+        if len(iBin) == 0:
+            return [self.IF(c, v, List[0])]
+        *iBin, b = iBin
+        N = 2 ** len(iBin)
+        if len(List) <= N:
+            self.ASSERT(c, b, 0)
+            return self.SETLI(List, iBin, v, c)
+        return self.SETLI(List[:N], iBin, v, self.AND(c, self.NOT(b))) + self.SETLI(List[N:], iBin, v, self.AND(c, b))
     def VAL(self, xBin):
         return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
     def POW(self, x, nBin):
@@ -334,8 +346,8 @@ if __name__ == '__main__':
             uBin = pro.BINARY(u, 8)                #
             jBin = pro.BINADD(jBin, uBin, 0, 8)[0] #     j := j + u & 0xff
             v = pro.GETLI(SBox, jBin)              #     v := S[j]
-            pro.SETLI(SBox, iBin, v)               #     S[i] := v
-            pro.SETLI(SBox, jBin, u)               #     S[j] := u
+            SBox = pro.SETLI(SBox, iBin, v)        #     S[i] := v
+            SBox = pro.SETLI(SBox, jBin, u)        #     S[j] := u
         eBin = pro.BINARY(1, 8)                    # e := 1
         xBin = pro.BINARY(0, 8)                    # x := 0
         yBin = pro.BINARY(0, 8)                    # y := 0
@@ -346,8 +358,8 @@ if __name__ == '__main__':
             yBin = pro.BINADD(yBin, aBin, 0, 8)[0] #     y := y + a & 0xff
             b = pro.GETLI(SBox, yBin)              #     b := S[y]
             bBin = pro.BINARY(b, 8)                #
-            pro.SETLI(SBox, xBin, b)               #     S[x] := b
-            pro.SETLI(SBox, yBin, a)               #     S[y] := a
+            SBox = pro.SETLI(SBox, xBin, b)        #     S[x] := b
+            SBox = pro.SETLI(SBox, yBin, a)        #     S[y] := a
             sBin = pro.BINADD(aBin, bBin, 0, 8)[0] #     s := a + b & 0xff
             o = pro.GETLI(SBox, sBin)              #     o := S[s]
             pro.RET('R[0x{:02x}]'.format(i), o)    #     R[i] := o
