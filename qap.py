@@ -57,11 +57,11 @@ class Program:
         β2 = multiply(G2, β)
         γ2 = multiply(G2, γ)
         δ2 = multiply(G2, δ)
-        u1U = [multiply(G1, (β * Ax + α * Bx + Cx) * Γ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if m     in pro.pubs]
-        v1V = [multiply(G1, (β * Ax + α * Bx + Cx) * Δ) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if m not in pro.pubs]
+        u1U = [multiply(G1, (β * Ax + α * Bx + Cx) * Γ % P) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if m     in pro.pubs]
+        v1V = [multiply(G1, (β * Ax + α * Bx + Cx) * Δ % P) for m, (Ax, Bx, Cx) in enumerate(zip(AxM, BxM, CxM)) if m not in pro.pubs]
         x1I = [multiply(G1, pow(x, i, P)) for i in range(I)]
         x2I = [multiply(G2, pow(x, i, P)) for i in range(I)]
-        y1I = [multiply(G1, pow(x, i, P) * Δ * Zx) for i in range(I - 1)]
+        y1I = [multiply(G1, pow(x, i, P) * Δ * Zx % P) for i in range(I - 1)]
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         N = self.con_count()
@@ -87,11 +87,11 @@ class Program:
         AwI = util.ifft(awN + [0] * (I - N), S, P)
         BwI = util.ifft(bwN + [0] * (I - N), S, P)
         CwI = util.ifft(cwN + [0] * (I - N), S, P)
-        awI = util.fft([Aw * pow(T, i, P) for i, Aw in enumerate(AwI)], S, P)
-        bwI = util.fft([Bw * pow(T, i, P) for i, Bw in enumerate(BwI)], S, P)
-        cwI = util.fft([Cw * pow(T, i, P) for i, Cw in enumerate(CwI)], S, P)
-        hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)]
-        HI = [H * pow(T, 0 - i, P) for i, H in enumerate(util.ifft(hI, S, P))]
+        awI = util.fft([Aw * pow(T, i, P) % P for i, Aw in enumerate(AwI)], S, P) # FFT in coset
+        bwI = util.fft([Bw * pow(T, i, P) % P for i, Bw in enumerate(BwI)], S, P) # FFT in coset
+        cwI = util.fft([Cw * pow(T, i, P) % P for i, Cw in enumerate(CwI)], S, P) # FFT in coset
+        hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
+        HI = [H * pow(T, 0 - i, P) % P for i, H in enumerate(util.ifft(hI, S, P))] # IFFT in coset
         A1 = add(α1, multiply(δ1, r))
         for Aw, x1 in zip(AwI, x1I):
             A1 = add(A1, multiply(x1, Aw))
@@ -101,7 +101,7 @@ class Program:
         B2 = add(β2, multiply(δ2, s))
         for Bw, x2 in zip(BwI, x2I):
             B2 = add(B2, multiply(x2, Bw))
-        C1 = add(add(multiply(A1, s), multiply(B1, r)), neg(multiply(δ1, r * s)))
+        C1 = add(add(multiply(A1, s), multiply(B1, r)), neg(multiply(δ1, r * s % P)))
         for H, y1 in zip(HI, y1I):
             C1 = add(C1, multiply(y1, H))
         for v, v1 in zip(vV, v1V):
@@ -247,7 +247,7 @@ class Program:
             return list(self.IF(b, u, v) for u, v in zip(t, f))
         if isinstance(t, tuple) and isinstance(f, tuple):
             return tuple(self.IF(b, u, v) for u, v in zip(t, f))
-        # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f))
+        # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f)) # generate more constraints but faster
         return self.ADD(self.MUL(b, self.SUB(t, f)), f)
     def SUM(self, List):
         r = 0
@@ -288,6 +288,10 @@ class Program:
             x = self.MUL(x, x)
             r = self.MUL(r, self.IF(b, x, 1))
         return r
+    def ROTL(self, xBin, N):
+        return xBin[-N:] + xBin[:-N]
+    def ROTR(self, xBin, N):
+        return xBin[+N:] + xBin[:+N]
     def BITNOT(self, xBin):
         return [self.NOT(b) for b in xBin]
     def BITAND(self, xBin, yBin):
@@ -339,7 +343,7 @@ if __name__ == '__main__':
         jBin = pro.BINARY(0, 8)                    # j := 0
         for i in range(256):                       # for each i in 0..255 do
             iBin = pro.BINARY(i, 8)                #
-            k = pro.VAR('K[0x{:02x}]'.format(i))   #     k := K[i]
+            k = pro.VAR('K[{:#04x}]'.format(i))    #     k := K[i]
             kBin = pro.BINARY(k, 8)                #
             jBin = pro.BINADD(jBin, kBin, 0, 8)[0] #     j := j + k & 0xff
             u = pro.GETLI(SBox, iBin)              #     u := S[i]
@@ -361,19 +365,19 @@ if __name__ == '__main__':
             SBox = pro.SETLI(SBox, xBin, b)        #     S[x] := b
             SBox = pro.SETLI(SBox, yBin, a)        #     S[y] := a
             sBin = pro.BINADD(aBin, bBin, 0, 8)[0] #     s := a + b & 0xff
-            o = pro.GETLI(SBox, sBin)              #     o := S[s]
-            pro.RET('R[0x{:02x}]'.format(i), o)    #     R[i] := o
+            g = pro.GETLI(SBox, sBin)              #     g := S[s]
+            pro.RET('G[{:#04x}]'.format(i), g)     #     G[i] := g
     print('Number of constraints:', pro.con_count())
     print('Number of dimensions:', pro.dim_count())
     with Timer('Setting up QAP...'):
-        x = random.randrange(1, P)
         α = random.randrange(1, P)
         β = random.randrange(1, P)
         γ = random.randrange(1, P)
         δ = random.randrange(1, P)
+        x = random.randrange(1, P)
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = pro.setup(α, β, γ, δ, x)
     with Timer('Generating witness...'):
-        args = {'K[0x{:02x}]'.format(i): i for i in range(256)}
+        args = {'K[{:#04x}]'.format(i): i for i in range(256)}
         r = random.randrange(1, P)
         s = random.randrange(1, P)
         A1, B2, C1, uU = pro.prove(α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s)
