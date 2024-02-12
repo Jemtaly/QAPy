@@ -10,7 +10,7 @@ while (P - 1) % (K * 2) == 0:
 for Z in range(2, P):
     if pow(Z, (P - 1) // 2, P) != 1:
         break
-R = pow(Z, (P - 1) // K, P) # primitive K-th root of unity
+T = pow(Z, (P - 1) // K, P) # primitive K-th root of unity
 class Timer:
     def __init__(self, text):
         self.text = text
@@ -35,9 +35,9 @@ class Program:
         I = 1
         while I < N:
             I = I * 2
-        S = pow(R, K // I, P) # primitive I-th root of unity
+        R = pow(T, K // I, P) # primitive I-th root of unity
         xI = [pow(x, i, P) for i in range(I)]
-        XI = util.ifft(xI, S, P)
+        XI = util.ifft(xI, R, P)
         AxM = [0 for _ in range(M)]
         BxM = [0 for _ in range(M)]
         CxM = [0 for _ in range(M)]
@@ -69,8 +69,8 @@ class Program:
         while I < N:
             I = I * 2
         J = I * 2
-        S = pow(R, K // I, P) # primitive I-th root of unity
-        T = pow(R, K // J, P) # primitive J-th root of unity
+        R = pow(T, K // I, P) # primitive I-th root of unity
+        S = pow(T, K // J, P) # primitive J-th root of unity
         wM = []
         getw = lambda xM: sum(wM[m] * x for m, x in xM.items()) % P
         for func in self.dims:
@@ -84,14 +84,14 @@ class Program:
             awN.append(getw(aM))
             bwN.append(getw(bM))
             cwN.append(getw(cM))
-        AwI = util.ifft(awN + [0] * (I - N), S, P)
-        BwI = util.ifft(bwN + [0] * (I - N), S, P)
-        CwI = util.ifft(cwN + [0] * (I - N), S, P)
-        awI = util.fft([Aw * pow(T, i, P) % P for i, Aw in enumerate(AwI)], S, P) # FFT in coset
-        bwI = util.fft([Bw * pow(T, i, P) % P for i, Bw in enumerate(BwI)], S, P) # FFT in coset
-        cwI = util.fft([Cw * pow(T, i, P) % P for i, Cw in enumerate(CwI)], S, P) # FFT in coset
+        AwI = util.ifft(awN + [0] * (I - N), R, P)
+        BwI = util.ifft(bwN + [0] * (I - N), R, P)
+        CwI = util.ifft(cwN + [0] * (I - N), R, P)
+        awI = util.fft([Aw * pow(S, i, P) % P for i, Aw in enumerate(AwI)], R, P) # FFT in coset
+        bwI = util.fft([Bw * pow(S, i, P) % P for i, Bw in enumerate(BwI)], R, P) # FFT in coset
+        cwI = util.fft([Cw * pow(S, i, P) % P for i, Cw in enumerate(CwI)], R, P) # FFT in coset
         hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
-        HI = [H * pow(T, 0 - i, P) % P for i, H in enumerate(util.ifft(hI, S, P))] # IFFT in coset
+        HI = [H * pow(S, 0 - i, P) % P for i, H in enumerate(util.ifft(hI, R, P))] # IFFT in coset
         A1 = add(α1, multiply(δ1, r))
         for Aw, x1 in zip(AwI, x1I):
             A1 = add(A1, multiply(x1, Aw))
@@ -180,13 +180,13 @@ class Program:
         z = self.__bind(lambda getw, args: getw(x) * util.modinv(getw(y), P) % P)
         self.ASSERT(z, y, x)
         return z
-    def SWITCH(self, x, Keys):
+    def SWITCH(self, x, KEYS):
         if isinstance(x, int):
-            assert x in Keys
-            return {K: 1 - pow(x - K, P - 1, P) for K in Keys}
-        xChk = {K: 0 for K in Keys}
+            assert x in KEYS
+            return {K: 1 - pow(x - K, P - 1, P) for K in KEYS}
+        xChk = {K: 0 for K in KEYS}
         bind = lambda K: self.__bind(lambda getw, args: 1 - pow(getw(x) - K, P - 1, P))
-        for K in Keys:
+        for K in KEYS:
             b = xChk[K] = bind(K)
             self.ASSERT_ISBOOL(b)
         t = self.SUM(self.MUL(b, K) for K, b in xChk.items())
@@ -194,27 +194,27 @@ class Program:
         self.ASSERT_EQ(x, t)
         self.ASSERT_EQ(1, e)
         return xChk
-    def BINARY(self, x, xLen):
+    def BINARY(self, x, XLEN):
         if isinstance(x, int):
-            assert 0 <= x < 2 ** xLen
-            return [x >> I & 1 for I in range(xLen)]
+            assert 0 <= x < 2 ** XLEN
+            return [x >> I & 1 for I in range(XLEN)]
         bind = lambda I: self.__bind(lambda getw, args: getw(x) >> I & 1)
-        xBin = [0 for _ in range(xLen)]
-        for I in range(xLen):
+        xBin = [0 for _ in range(XLEN)]
+        for I in range(XLEN):
             b = xBin[I] = bind(I)
             self.ASSERT_ISBOOL(b)
         t = self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
         self.ASSERT_EQ(x, t)
         return xBin
-    def DIVMOD(self, x, y, qLen, rLen):
+    def DIVMOD(self, x, y, QLEN, RLEN):
         if x == 0:
-            return [0] * qLen, [0] * rLen
+            return [0] * QLEN, [0] * RLEN
         if y == 0:
             raise ZeroDivisionError
         if isinstance(x, int) and isinstance(y, int):
-            assert 0 <= x // y < 2 ** qLen
-            assert 0 <= x % y < 2 ** rLen
-            return [x // y >> I & 1 for I in range(qLen)], [x % y >> I & 1 for I in range(rLen)]
+            assert 0 <= x // y < 2 ** QLEN
+            assert 0 <= x % y < 2 ** RLEN
+            return [x // y >> I & 1 for I in range(QLEN)], [x % y >> I & 1 for I in range(RLEN)]
         if isinstance(x, int):
             x = {0: x}
         if isinstance(y, int):
@@ -222,9 +222,9 @@ class Program:
         q = self.__bind(lambda getw, args: getw(x) // getw(y))
         r = self.__bind(lambda getw, args: getw(x) % getw(y))
         self.ASSERT(q, y, self.SUB(x, r)) # assert y * q == x - r
-        self.ASSERT_GE(q, 0, qLen)
-        self.ASSERT_GE(r, 0, rLen)
-        self.ASSERT_LT(r, y, rLen)
+        self.ASSERT_GE(q, 0, QLEN)
+        self.ASSERT_GE(r, 0, RLEN)
+        self.ASSERT_LT(r, y, RLEN)
         return q, r
     def BOOL(self, x):
         if isinstance(x, int):
@@ -288,10 +288,12 @@ class Program:
             x = self.MUL(x, x)
             r = self.MUL(r, self.IF(b, x, 1))
         return r
-    def ROTL(self, xBin, N):
-        return xBin[-N:] + xBin[:-N]
-    def ROTR(self, xBin, N):
-        return xBin[+N:] + xBin[:+N]
+    def ROTL(self, xBin, NROT):
+        NROT = -NROT % len(xBin)
+        return xBin[NROT:] + xBin[:NROT]
+    def ROTR(self, xBin, NROT):
+        NROT = +NROT % len(xBin)
+        return xBin[NROT:] + xBin[:NROT]
     def BITNOT(self, xBin):
         return [self.NOT(b) for b in xBin]
     def BITAND(self, xBin, yBin):
@@ -300,73 +302,76 @@ class Program:
         return [self.OR(a, b) for a, b in zip(xBin, yBin, strict = True)]
     def BITXOR(self, xBin, yBin):
         return [self.XOR(a, b) for a, b in zip(xBin, yBin, strict = True)]
-    def BINADD(self, xBin, yBin, c, sLen):
-        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.ADD(0, b) for b in yBin), self.ADD(0, c))), sLen + 1)
-        return zBin[:sLen], self.ADD(0, zBin[sLen])
-    def BINSUB(self, xBin, yBin, c, sLen):
-        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.SUB(1, b) for b in yBin), self.SUB(1, c))), sLen + 1)
-        return zBin[:sLen], self.SUB(1, zBin[sLen])
-    def BINMUL(self, xBin, yBin, cBin, dBin, sLen):
-        zBin = self.BINARY(self.ADD(self.MUL(self.VAL(xBin), self.VAL(yBin)), self.ADD(self.VAL(cBin), self.VAL(dBin))), sLen * 2)
-        return zBin[:sLen], zBin[sLen:]
-    def GE(self, x, y, dLen): # 0 <= x - y < 2 ** dLen
-        return self.BINARY(self.ADD(2 ** dLen, self.SUB(x, y)), dLen + 1)[dLen]
-    def LE(self, x, y, dLen): # 0 <= y - x < 2 ** dLen
-        return self.BINARY(self.ADD(2 ** dLen, self.SUB(y, x)), dLen + 1)[dLen]
-    def GT(self, x, y, dLen): # 0 < x - y <= 2 ** dLen
-        return self.BINARY(self.ADD(2 ** dLen, self.SUB(self.SUB(x, y), 1)), dLen + 1)[dLen]
-    def LT(self, x, y, dLen): # 0 < y - x <= 2 ** dLen
-        return self.BINARY(self.ADD(2 ** dLen, self.SUB(self.SUB(y, x), 1)), dLen + 1)[dLen]
-    def ASSERT_GE(self, x, y, dLen): # assert 0 <= x - y < 2 ** dLen
-        return self.BINARY(self.SUB(x, y), dLen)
-    def ASSERT_LE(self, x, y, dLen): # assert 0 <= y - x < 2 ** dLen
-        return self.BINARY(self.SUB(y, x), dLen)
-    def ASSERT_GT(self, x, y, dLen): # assert 0 < x - y <= 2 ** dLen
-        return self.BINARY(self.SUB(self.SUB(x, y), 1), dLen)
-    def ASSERT_LT(self, x, y, dLen): # assert 0 < y - x <= 2 ** dLen
-        return self.BINARY(self.SUB(self.SUB(y, x), 1), dLen)
+    def BINADD(self, xBin, yBin, c = 0, SLEN = None):
+        SLEN = max(len(xBin), len(yBin)) if SLEN is None else SLEN
+        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.ADD(0, b) for b in yBin), self.ADD(0, c))), SLEN + 1)
+        return zBin[:SLEN], self.ADD(0, zBin[SLEN])
+    def BINSUB(self, xBin, yBin, c = 0, SLEN = None):
+        SLEN = max(len(xBin), len(yBin)) if SLEN is None else SLEN
+        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.SUB(1, b) for b in yBin), self.SUB(1, c))), SLEN + 1)
+        return zBin[:SLEN], self.SUB(1, zBin[SLEN])
+    def BINMUL(self, xBin, yBin, cBin = [], dBin = [], SLEN = None):
+        SLEN = max(len(xBin), len(yBin), len(cBin), len(dBin)) if SLEN is None else SLEN
+        zBin = self.BINARY(self.ADD(self.MUL(self.VAL(xBin), self.VAL(yBin)), self.ADD(self.VAL(cBin), self.VAL(dBin))), SLEN * 2)
+        return zBin[:SLEN], zBin[SLEN:]
+    def GE(self, x, y, DLEN): # 0 <= x - y < 2 ** DLEN
+        return self.BINARY(self.ADD(2 ** DLEN, self.SUB(x, y)), DLEN + 1)[DLEN]
+    def LE(self, x, y, DLEN): # 0 <= y - x < 2 ** DLEN
+        return self.BINARY(self.ADD(2 ** DLEN, self.SUB(y, x)), DLEN + 1)[DLEN]
+    def GT(self, x, y, DLEN): # 0 < x - y <= 2 ** DLEN
+        return self.BINARY(self.ADD(2 ** DLEN, self.SUB(self.SUB(x, y), 1)), DLEN + 1)[DLEN]
+    def LT(self, x, y, DLEN): # 0 < y - x <= 2 ** DLEN
+        return self.BINARY(self.ADD(2 ** DLEN, self.SUB(self.SUB(y, x), 1)), DLEN + 1)[DLEN]
+    def ASSERT_GE(self, x, y, DLEN): # assert 0 <= x - y < 2 ** DLEN
+        return self.BINARY(self.SUB(x, y), DLEN)
+    def ASSERT_LE(self, x, y, DLEN): # assert 0 <= y - x < 2 ** DLEN
+        return self.BINARY(self.SUB(y, x), DLEN)
+    def ASSERT_GT(self, x, y, DLEN): # assert 0 < x - y <= 2 ** DLEN
+        return self.BINARY(self.SUB(self.SUB(x, y), 1), DLEN)
+    def ASSERT_LT(self, x, y, DLEN): # assert 0 < y - x <= 2 ** DLEN
+        return self.BINARY(self.SUB(self.SUB(y, x), 1), DLEN)
     def ASSERT_EQ(self, x, y):
         self.ASSERT(1, x, y)
     def ASSERT_NE(self, x, y):
         self.DIV(1, self.SUB(x, y))
     def ASSERT_ISBOOL(self, x):
         self.ASSERT(x, x, x)
-    def ASSERT_CHK(self, x, Keys):
-        self.SWITCH(x, Keys)
-    def ASSERT_LEN(self, x, xLen):
-        self.BINARY(x, xLen)
+    def ASSERT_CHK(self, x, KEYS):
+        self.SWITCH(x, KEYS)
+    def ASSERT_LEN(self, x, XLEN):
+        self.BINARY(x, XLEN)
 if __name__ == '__main__':
     with Timer('Compiling program...'):
         # example: RC4 key scheduling algorithm
         pro = Program()
-        SBox = list(range(256))                    # S := [0, 1, 2, ..., 255]
-        jBin = pro.BINARY(0, 8)                    # j := 0
-        for i in range(256):                       # for each i in 0..255 do
-            iBin = pro.BINARY(i, 8)                #
-            k = pro.VAR('K[{:#04x}]'.format(i))    #     k := K[i]
-            kBin = pro.BINARY(k, 8)                #
-            jBin = pro.BINADD(jBin, kBin, 0, 8)[0] #     j := j + k & 0xff
-            u = pro.GETLI(SBox, iBin)              #     u := S[i]
-            uBin = pro.BINARY(u, 8)                #
-            jBin = pro.BINADD(jBin, uBin, 0, 8)[0] #     j := j + u & 0xff
-            v = pro.GETLI(SBox, jBin)              #     v := S[j]
-            SBox = pro.SETLI(SBox, iBin, v)        #     S[i] := v
-            SBox = pro.SETLI(SBox, jBin, u)        #     S[j] := u
-        eBin = pro.BINARY(1, 8)                    # e := 1
-        xBin = pro.BINARY(0, 8)                    # x := 0
-        yBin = pro.BINARY(0, 8)                    # y := 0
-        for i in range(256):                       # for each i in 0..255 do
-            xBin = pro.BINADD(xBin, eBin, 0, 8)[0] #     x := x + 1 & 0xff
-            a = pro.GETLI(SBox, xBin)              #     a := S[x]
-            aBin = pro.BINARY(a, 8)                #
-            yBin = pro.BINADD(yBin, aBin, 0, 8)[0] #     y := y + a & 0xff
-            b = pro.GETLI(SBox, yBin)              #     b := S[y]
-            bBin = pro.BINARY(b, 8)                #
-            SBox = pro.SETLI(SBox, xBin, b)        #     S[x] := b
-            SBox = pro.SETLI(SBox, yBin, a)        #     S[y] := a
-            sBin = pro.BINADD(aBin, bBin, 0, 8)[0] #     s := a + b & 0xff
-            g = pro.GETLI(SBox, sBin)              #     g := S[s]
-            pro.RET('G[{:#04x}]'.format(i), g)     #     G[i] := g
+        SBox = list(range(256))                 # S := [0, 1, 2, ..., 255]
+        jBin = pro.BINARY(0, 8)                 # j := 0
+        for i in range(256):                    # for each i in 0..255 do
+            iBin = pro.BINARY(i, 8)             #
+            k = pro.VAR('K[{:#04x}]'.format(i)) #     k := K[i]
+            kBin = pro.BINARY(k, 8)             #
+            jBin = pro.BINADD(jBin, kBin, 0)[0] #     j := j + k & 0xff
+            u = pro.GETLI(SBox, iBin)           #     u := S[i]
+            uBin = pro.BINARY(u, 8)             #
+            jBin = pro.BINADD(jBin, uBin, 0)[0] #     j := j + u & 0xff
+            v = pro.GETLI(SBox, jBin)           #     v := S[j]
+            SBox = pro.SETLI(SBox, iBin, v)     #     S[i] := v
+            SBox = pro.SETLI(SBox, jBin, u)     #     S[j] := u
+        eBin = pro.BINARY(1, 8)                 # e := 1
+        xBin = pro.BINARY(0, 8)                 # x := 0
+        yBin = pro.BINARY(0, 8)                 # y := 0
+        for i in range(256):                    # for each i in 0..255 do
+            xBin = pro.BINADD(xBin, eBin, 0)[0] #     x := x + 1 & 0xff
+            a = pro.GETLI(SBox, xBin)           #     a := S[x]
+            aBin = pro.BINARY(a, 8)             #
+            yBin = pro.BINADD(yBin, aBin, 0)[0] #     y := y + a & 0xff
+            b = pro.GETLI(SBox, yBin)           #     b := S[y]
+            bBin = pro.BINARY(b, 8)             #
+            SBox = pro.SETLI(SBox, xBin, b)     #     S[x] := b
+            SBox = pro.SETLI(SBox, yBin, a)     #     S[y] := a
+            sBin = pro.BINADD(aBin, bBin, 0)[0] #     s := a + b & 0xff
+            g = pro.GETLI(SBox, sBin)           #     g := S[s]
+            pro.RET('G[{:#04x}]'.format(i), g)  #     G[i] := g
     print('Number of constraints:', pro.con_count())
     print('Number of dimensions:', pro.dim_count())
     with Timer('Setting up QAP...'):
