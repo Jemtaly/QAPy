@@ -257,6 +257,12 @@ class Assembly:
             k = self.IF(b, x, 1)
             r = self.MUL(r, k)
         return r
+    def EXP(self, x, NEXP):
+        NBIN = []
+        while NEXP > 0:
+            NBIN.append(NEXP & 1)
+            NEXP = NEXP >> 1
+        return self.POW(x, NBIN if NBIN else [0])
     def SUM(self, List):
         r = 0
         for i in List:
@@ -386,6 +392,12 @@ class Assembly:
             kBin = self.IF(b, xBin, self.BINARY(1, SLEN))
             rBin = self.BINMUL(rBin, kBin)[0]
         return rBin
+    def BINEXP(self, xBin, NEXP):
+        NBIN = []
+        while NEXP > 0:
+            NBIN.append(NEXP & 1)
+            NEXP = NEXP >> 1
+        return self.BINPOW(xBin, NBIN if NBIN else [0])
     def BINGE(self, xBin, yBin):
         DLEN = max(len(xBin), len(yBin))
         return self.BINARY(self.ADD(2 ** DLEN, self.SUB(self.VAL(xBin), self.VAL(yBin))), DLEN + 1)[DLEN]
@@ -591,8 +603,8 @@ class Compiler(ast.NodeVisitor, Assembly):
             return self.DIV(self.VAL(left) if isinstance(left, list) else left, self.VAL(right) if isinstance(right, list) else right)
         if isinstance(node.op, ast.Pow):
             if isinstance(left, list):
-                return self.BINPOW(left, right)
-            return self.POW(left, right)
+                return self.BINEXP(left, right) if isinstance(right, int) else self.BINPOW(left, right)
+            return self.EXP(left, right) if isinstance(right, int) else self.POW(left, right)
         if isinstance(node.op, ast.FloorDiv):
             return self.BINDIVMOD(left, right)[0]
         if isinstance(node.op, ast.Mod):
