@@ -470,6 +470,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         def visit(generators: list[ast.comprehension]):
             if len(generators) == 0:
                 yield self.visit(node.elt)
+                return
             generator, *generators = generators
             iter = self.visit(generator.iter)
             if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
@@ -486,6 +487,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         def visit(generators: list[ast.comprehension]):
             if len(generators) == 0:
                 yield self.visit(node.key), self.visit(node.value)
+                return
             generator, *generators = generators
             iter = self.visit(generator.iter)
             if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
@@ -624,7 +626,7 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Compare(self, node):
         result = 1
         left = self.visit(node.left)
-        for op, right in zip(node.ops, node.comparators):
+        for op, right in zip(node.ops, map(self.visit, node.comparators)):
             if isinstance(op, ast.Eq):
                 result = self.AND(result, self.NOT(self.NEZ(self.SUB(self.VAL(left) if isinstance(left, list) else left, self.VAL(right) if isinstance(right, list) else right))))
             elif isinstance(op, ast.NotEq):
