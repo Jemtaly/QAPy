@@ -241,11 +241,11 @@ class Assembly:
     def XOR(self, x, y):
         return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(x, 2)), self.SUB(1, self.MUL(y, 2)))), 2)
     def IF(self, b, t, f):
-        if isinstance(t, dict) or isinstance(f, dict):
+        if isinstance(t, dict) and isinstance(f, dict):
             return dict((k, self.IF(b, t[k], f[k])) for k in t.keys() | f.keys())
-        if isinstance(t, list) or isinstance(f, list):
+        if isinstance(t, list) and isinstance(f, list):
             return list(self.IF(b, t[k], f[k]) for k in range(max(len(t), len(f))))
-        if isinstance(t, tuple) or isinstance(f, tuple):
+        if isinstance(t, tuple) and isinstance(f, tuple):
             return tuple(self.IF(b, t[k], f[k]) for k in range(max(len(t), len(f))))
         # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f)) # generate more constraints but faster
         return self.ADD(self.MUL(b, self.SUB(t, f)), f)
@@ -427,9 +427,11 @@ class Compiler(ast.NodeVisitor, Assembly):
         }]
     def visit_Module(self, node):
         for stmt in node.body:
-            flag, result = self.visit(stmt)
-            if flag != 'normal':
-                raise SyntaxError
+            self.visit(stmt)
+    def visit_Pass(self, node):
+        pass
+    def visit_Expr(self, node):
+        self.visit(node.value)
     def visit_FunctionDef(self, node):
         def_stack = self.stack
         def func(*args):
@@ -438,15 +440,13 @@ class Compiler(ast.NodeVisitor, Assembly):
             for target, arg in zip(node.args.args, args, strict = True):
                 self.stack[-1][target.arg] = arg
             for stmt in node.body:
-                flag, result = self.visit(stmt)
-                if flag == 'return':
-                    break
-                if flag != 'normal':
-                    raise SyntaxError
+                self.visit(stmt)
+            if node.returns is None:
+                raise SyntaxError('function must return a value')
+            result = self.visit(node.returns)
             self.stack = call_stack
             return result
         self.stack[-1][node.name] = func
-        return 'normal', None
     def visit_Lambda(self, node):
         def_stack = self.stack
         def func(*args):
@@ -458,107 +458,57 @@ class Compiler(ast.NodeVisitor, Assembly):
             self.stack = call_stack
             return result
         return func
-    def visit_Return(self, node):
-        return 'return', self.visit(node.value)
     def visit_For(self, node):
         iter = self.visit(node.iter)
-        if not isinstance(iter, range):
-            if not isinstance(node.target, ast.Name):
+        if not isinstance(iter, range) or not isinstance(node.target, ast.Name):
                 raise NotImplementedError
-        elif isinstance(iter, list | dict):
-            if not isinstance(node.target, ast.Tuple) or tuple(isinstance(elt, ast.Name) for elt in node.target.elts) != (1, 1):
-                raise NotImplementedError
-        else:
-            raise NotImplementedError
-        for value in enumerate(iter) if isinstance(iter, list) else iter.items() if isinstance(iter, dict) else iter:
-            if isinstance(value, int):
-                self.stack[-1][node.target.id] = value
-            else:
-                self.stack[-1][node.target.elts[0].id] = value[0]
-                self.stack[-1][node.target.elts[1].id] = value[1]
+        for value in iter:
+            self.stack[-1][node.target.id] = value
             for stmt in node.body:
-                flag, result = self.visit(stmt)
-                if flag == 'break':
-                    break
-                if flag == 'continue':
-                    continue
-                if flag == 'return':
-                    return 'return', result
-        return 'normal', None
+                self.visit(stmt)
     def visit_ListComp(self, node):
-        result = []
         def visit(generators: list[ast.comprehension]):
             if len(generators) == 0:
-                result.append(self.visit(node.elt))
-                return
+                yield self.visit(node.elt)
             generator, *generators = generators
             iter = self.visit(generator.iter)
-            if isinstance(iter, range):
-                if not isinstance(generator.target, ast.Name):
-                    raise NotImplementedError
-            elif isinstance(iter, list | dict):
-                if not isinstance(generator.target, ast.Tuple) or tuple(isinstance(elt, ast.Name) for elt in generator.target.elts) != (1, 1):
-                    raise NotImplementedError
-            else:
+            if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
                 raise NotImplementedError
-            for value in enumerate(iter) if isinstance(iter, list) else iter.items() if isinstance(iter, dict) else iter:
-                if isinstance(value, int):
-                    self.stack[-1][generator.target.id] = value
-                else:
-                    self.stack[-1][generator.target.elts[0].id] = value[0]
-                    self.stack[-1][generator.target.elts[1].id] = value[1]
+            call_stack = self.stack
+            self.stack = call_stack + [{}]
+            for value in iter:
+                self.stack[-1][generator.target.id] = value
                 if all(self.visit(cond) for cond in generator.ifs):
-                    visit(generators)
-        visit(node.generators)
-        return result
+                    yield from visit(generators)
+            self.stack = call_stack
+        return list(visit(node.generators))
     def visit_DictComp(self, node):
-        result = {}
         def visit(generators: list[ast.comprehension]):
             if len(generators) == 0:
-                result[self.visit(node.key)] = self.visit(node.value)
-                return
+                yield self.visit(node.key), self.visit(node.value)
             generator, *generators = generators
-            if not isinstance(generator.target, ast.Name):
-                raise NotImplementedError
             iter = self.visit(generator.iter)
-            if isinstance(iter, range):
-                if not isinstance(generator.target, ast.Name):
-                    raise NotImplementedError
-            elif isinstance(iter, list | dict):
-                if not isinstance(generator.target, ast.Tuple) or tuple(isinstance(elt, ast.Name) for elt in generator.target.elts) != (1, 1):
-                    raise NotImplementedError
-            else:
+            if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
                 raise NotImplementedError
-            for value in enumerate(iter) if isinstance(iter, list) else iter.items() if isinstance(iter, dict) else iter:
-                if isinstance(value, int):
-                    self.stack[-1][generator.target.id] = value
-                else:
-                    self.stack[-1][generator.target.elts[0].id] = value[0]
-                    self.stack[-1][generator.target.elts[1].id] = value[1]
+            call_stack = self.stack
+            self.stack = call_stack + [{}]
+            for value in iter:
+                self.stack[-1][generator.target.id] = value
                 if all(self.visit(cond) for cond in generator.ifs):
-                    visit(generators)
-        visit(node.generators)
-        return result
-    def visit_Continue(self, node):
-        return 'continue', None
-    def visit_Break(self, node):
-        return 'break', None
+                    yield from visit(generators)
+            self.stack = call_stack
+        return dict(visit(node.generators))
     def visit_Assert(self, node):
         test = self.visit(node.test)
         if node.msg is None:
             self.ASSERT_NE(0, test)
         else:
             self.ASSERT_NE(0, test, msg = self.visit(node.msg))
-        return 'normal', None
-    def visit_Expr(self, node):
-        self.visit(node.value)
-        return 'normal', None
     def visit_Delete(self, node):
         for target in node.targets:
             if not isinstance(target, ast.Name):
                 raise NotImplementedError
             self.stack[-1].pop(target.id)
-        return 'normal', None
     def visit_Assign(self, node):
         def assign(target, value):
             if isinstance(target, ast.Tuple):
@@ -574,8 +524,9 @@ class Compiler(ast.NodeVisitor, Assembly):
                     raise NotImplementedError
                 slices.append(self.visit(target.slice))
                 target = target.value
+            target = self.visit(target)
             enums = []
-            temps = [self.stack[-1][target.id]]
+            temps = [target]
             for slice in reversed(slices):
                 if isinstance(slice, list):
                     slice = self.VAL(slice)
@@ -588,20 +539,23 @@ class Compiler(ast.NodeVisitor, Assembly):
                     temps = [next for temp in temps for next in temp]
                     continue
                 raise NotImplementedError
-            self.stack[-1][target.id] = self.SETBYKEY(value, self.stack[-1][target.id], *enums)
+            self.stack[-1][target.id] = self.SETBYKEY(value, target, *enums)
         value = self.visit(node.value)
         for target in node.targets:
             assign(target, value)
-        return 'normal', None
     def visit_Name(self, node):
         for scope in reversed(self.stack):
             if node.id in scope:
                 return scope[node.id]
-        raise NameError(node.id)
+        raise NameError('name not found: ' + node.id)
     def visit_Subscript(self, node):
         slice = self.visit(node.slice)
         value = self.visit(node.value)
-        return self.GETBYKEY(value, self.ENUM(self.VAL(slice) if isinstance(slice, list) else slice, value if isinstance(value, dict) else range(len(value))))
+        if isinstance(value, list):
+            return self.GETBYKEY(value, self.ENUM(self.VAL(slice) if isinstance(slice, list) else slice, range(len(value))))
+        if isinstance(value, dict):
+            return self.GETBYKEY(value, self.ENUM(self.VAL(slice) if isinstance(slice, list) else slice, value.keys()))
+        raise NotImplementedError
     def visit_Call(self, node):
         return self.visit(node.func)(*map(self.visit, node.args))
     def visit_Constant(self, node):
