@@ -524,9 +524,9 @@ class Compiler(ast.NodeVisitor, Assembly):
                     raise NotImplementedError
                 slices.append(self.visit(target.slice))
                 target = target.value
-            target = self.visit(target)
+            dest = self.visit(target)
             enums = []
-            temps = [target]
+            temps = [dest]
             for slice in reversed(slices):
                 if isinstance(slice, list):
                     slice = self.VAL(slice)
@@ -539,7 +539,7 @@ class Compiler(ast.NodeVisitor, Assembly):
                     temps = [next for temp in temps for next in temp]
                     continue
                 raise NotImplementedError
-            self.stack[-1][target.id] = self.SETBYKEY(value, target, *enums)
+            self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
         value = self.visit(node.value)
         for target in node.targets:
             assign(target, value)
