@@ -461,7 +461,7 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_For(self, node):
         iter = self.visit(node.iter)
         if not isinstance(iter, range) or not isinstance(node.target, ast.Name):
-                raise NotImplementedError
+            raise NotImplementedError('only support range iteration')
         for value in iter:
             self.stack[-1][node.target.id] = value
             for stmt in node.body:
@@ -474,7 +474,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             generator, *generators = generators
             iter = self.visit(generator.iter)
             if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
-                raise NotImplementedError
+                raise NotImplementedError('only support range iteration')
             call_stack = self.stack
             self.stack = call_stack + [{}]
             for value in iter:
@@ -491,7 +491,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             generator, *generators = generators
             iter = self.visit(generator.iter)
             if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
-                raise NotImplementedError
+                raise NotImplementedError('only support range iteration')
             call_stack = self.stack
             self.stack = call_stack + [{}]
             for value in iter:
@@ -509,7 +509,7 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Delete(self, node):
         for target in node.targets:
             if not isinstance(target, ast.Name):
-                raise NotImplementedError
+                raise SyntaxError('delete target must be a name')
             self.stack[-1].pop(target.id)
     def visit_Assign(self, node):
         def assign(target, value):
@@ -523,7 +523,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             slices = []
             while not isinstance(target, ast.Name):
                 if not isinstance(target, ast.Subscript):
-                    raise NotImplementedError
+                    raise SyntaxError('invalid assignment target')
                 slices.append(self.visit(target.slice))
                 target = target.value
             dest = self.visit(target)
@@ -540,7 +540,7 @@ class Compiler(ast.NodeVisitor, Assembly):
                     enums.append(self.ENUM(slice, range(max(map(len, temps)))))
                     temps = [next for temp in temps for next in temp]
                     continue
-                raise NotImplementedError
+                raise TypeError('subscripting must be applied to a list or a dict')
             self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
         value = self.visit(node.value)
         for target in node.targets:
@@ -557,7 +557,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             return self.GETBYKEY(value, self.ENUM(self.VAL(slice) if isinstance(slice, list) else slice, range(len(value))))
         if isinstance(value, dict):
             return self.GETBYKEY(value, self.ENUM(self.VAL(slice) if isinstance(slice, list) else slice, value.keys()))
-        raise NotImplementedError
+        raise TypeError('subscripting must be applied to a list or a dict')
     def visit_Call(self, node):
         return self.visit(node.func)(*map(self.visit, node.args))
     def visit_Constant(self, node):
@@ -567,7 +567,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             return int(node.value)
         if isinstance(node.value, str):
             return node.value
-        raise NotImplementedError
+        raise SyntaxError('invalid constant')
     def visit_BinOp(self, node):
         left = self.visit(node.left)
         right = self.visit(node.right)
@@ -603,14 +603,14 @@ class Compiler(ast.NodeVisitor, Assembly):
             return self.BITOR(left, right)
         if isinstance(node.op, ast.BitXor):
             return self.BITXOR(left, right)
-        raise NotImplementedError
+        raise NotImplementedError('unsupported binary operation')
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)
         if isinstance(node.op, ast.Invert):
             return self.BITNOT(operand)
         if isinstance(node.op, ast.Not):
             return self.NOT(operand)
-        raise NotImplementedError
+        raise NotImplementedError('unsupported unary operation')
     def visit_BoolOp(self, node):
         if isinstance(node.op, ast.And):
             result = 1
@@ -622,7 +622,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             for value in node.values:
                 result = self.OR(result, self.visit(value))
             return result
-        raise NotImplementedError
+        raise NotImplementedError('unsupported boolean operation')
     def visit_Compare(self, node):
         result = 1
         left = self.visit(node.left)
@@ -640,7 +640,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             elif isinstance(op, ast.GtE):
                 result = self.AND(result, self.BINGE(left, right))
             else:
-                raise NotImplementedError
+                raise NotImplementedError('unsupported comparison')
             left = right
         return result
     def visit_IfExp(self, node):
@@ -652,7 +652,7 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Dict(self, node):
         return dict((self.visit(key), self.visit(value)) for key, value in zip(node.keys, node.values))
     def generic_visit(self, node):
-        raise NotImplementedError
+        raise NotImplementedError('unsupported syntax')
 if __name__ == '__main__':
     with Timer('Compiling program...'):
         asm = Assembly()                          # RC4 key scheduling algorithm
