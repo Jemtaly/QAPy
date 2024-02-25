@@ -26,6 +26,8 @@ class Timer:
 class Vector:
     def __init__(self, args):
         self.args = args
+    def __bool__(self):
+        raise TypeError('non-boolean context')
     def items(self):
         return self.args.items()
     def keys(self):
@@ -448,37 +450,37 @@ class Compiler(ast.NodeVisitor, Assembly):
         }]
     def visit_Module(self, node):
         for stmt in node.body:
-            self.visit(stmt)
-    def visit_Pass(self, node):
-        pass
-    def visit_Expr(self, node):
-        self.visit(node.value)
-    def visit_FunctionDef(self, node):
-        def_stack = self.stack
-        def func(*args):
-            call_stack = self.stack
-            self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args, strict = True):
-                self.stack[-1][target.arg] = arg
+            flag, result = self.visit(stmt)
+            if flag == 'continue' or flag == 'break' or flag == 'return':
+                raise SyntaxError('invalid top-level statement')
+    def visit_Continue(self, node):
+        return 'continue', None
+    def visit_Break(self, node):
+        return 'break', None
+    def visit_Return(self, node):
+        return 'return', self.visit(node.value) if node.value else None
+    def visit_If(self, node):
+        body = node.body if self.visit(node.test) else node.orelse
+        for stmt in body:
+            flag, result = self.visit(stmt)
+            if flag == 'continue' or flag == 'break' or flag == 'return':
+                return flag, result
+        return None, None
+    def visit_While(self, node):
+        while self.visit(node.test):
             for stmt in node.body:
-                self.visit(stmt)
-            if node.returns is None:
-                raise SyntaxError('function must return a value')
-            result = self.visit(node.returns)
-            self.stack = call_stack
-            return result
-        self.stack[-1][node.name] = func
-    def visit_Lambda(self, node):
-        def_stack = self.stack
-        def func(*args):
-            call_stack = self.stack
-            self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args, strict = True):
-                self.stack[-1][target.arg] = arg
-            result = self.visit(node.body)
-            self.stack = call_stack
-            return result
-        return func
+                flag, result = self.visit(stmt)
+                if flag == 'continue' or flag == 'break' or flag == 'return':
+                    break
+            else:
+                continue
+            if flag == 'continue':
+                continue
+            if flag == 'break':
+                break
+            if flag == 'return':
+                return flag, result
+        return None, None
     def visit_For(self, node):
         iter = self.visit(node.iter)
         if not isinstance(iter, range) or not isinstance(node.target, ast.Name):
@@ -486,7 +488,18 @@ class Compiler(ast.NodeVisitor, Assembly):
         for value in iter:
             self.stack[-1][node.target.id] = value
             for stmt in node.body:
-                self.visit(stmt)
+                flag, result = self.visit(stmt)
+                if flag == 'continue' or flag == 'break' or flag == 'return':
+                    break
+            else:
+                continue
+            if flag == 'continue':
+                continue
+            if flag == 'break':
+                break
+            if flag == 'return':
+                return flag, result
+        return None, None
     def visit_ListComp(self, node):
         def visit(generators):
             if len(generators) == 0:
@@ -521,17 +534,48 @@ class Compiler(ast.NodeVisitor, Assembly):
                     yield from visit(generators)
             self.stack = call_stack
         return dict(visit(node.generators))
+    def visit_Pass(self, node):
+        return None, None
+    def visit_Expr(self, node):
+        self.visit(node.value)
+        return None, None
     def visit_Assert(self, node):
         test = self.visit(node.test)
         if node.msg is None:
             self.ASSERT_NE(0, test)
         else:
             self.ASSERT_NE(0, test, msg = self.visit(node.msg))
-    def visit_Delete(self, node):
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                raise SyntaxError('delete target must be a name')
-            self.stack[-1].pop(target.id)
+        return None, None
+    def visit_FunctionDef(self, node):
+        def_stack = self.stack
+        def func(*args):
+            call_stack = self.stack
+            self.stack = def_stack + [{}]
+            for target, arg in zip(node.args.args, args, strict = True):
+                self.stack[-1][target.arg] = arg
+            for stmt in node.body:
+                flag, result = self.visit(stmt)
+                if flag == 'break' or flag == 'continue':
+                    raise SyntaxError('invalid top-level statement')
+                if flag == 'return':
+                    break
+            else:
+                result = None
+            self.stack = call_stack
+            return result
+        self.stack[-1][node.name] = func
+        return None, None
+    def visit_Lambda(self, node):
+        def_stack = self.stack
+        def func(*args):
+            call_stack = self.stack
+            self.stack = def_stack + [{}]
+            for target, arg in zip(node.args.args, args, strict = True):
+                self.stack[-1][target.arg] = arg
+            result = self.visit(node.body)
+            self.stack = call_stack
+            return result
+        return func
     def visit_Assign(self, node):
         def assign(target, value):
             if isinstance(target, ast.Tuple):
@@ -568,6 +612,13 @@ class Compiler(ast.NodeVisitor, Assembly):
         value = self.visit(node.value)
         for target in node.targets:
             assign(target, value)
+        return None, None
+    def visit_Delete(self, node):
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                raise SyntaxError('delete target must be a name')
+            self.stack[-1].pop(target.id)
+        return None, None
     def visit_Name(self, node):
         for scope in reversed(self.stack):
             if node.id in scope:
@@ -688,7 +739,7 @@ if __name__ == '__main__':
             "G1 = lambda x, y, z: (x & y) | (z & ~x)\n"
             "T0 = b32(0x79cc4519)\n"
             "T1 = b32(0x7a879d8a)\n"
-            "def compress(V, I) -> V:\n"
+            "def compress(V, I):\n"
             "    W = [b32(0) for _ in range(68)]\n"
             "    for j in range(0, 16):\n"
             "        W[j] = I[j]\n"
@@ -702,17 +753,17 @@ if __name__ == '__main__':
             "    F = V[5]\n"
             "    G = V[6]\n"
             "    H = V[7]\n"
-            "    for j in range(0, 16):\n"
-            "        SS1 = ((A << 12) + E + (T0 << j)) << 7\n"
-            "        SS2 = SS1 ^ (A << 12)\n"
-            "        TT1 = F0(A, B, C) + D + SS2 + (W[j] ^ W[j + 4])\n"
-            "        TT2 = G0(E, F, G) + H + SS1 + W[j]\n"
-            "        A, B, C, D, E, F, G, H = TT1, A, B << 9, C, P0(TT2), E, F << 19, G\n"
-            "    for j in range(16, 64):\n"
-            "        SS1 = ((A << 12) + E + (T1 << j)) << 7\n"
-            "        SS2 = SS1 ^ (A << 12)\n"
-            "        TT1 = F1(A, B, C) + D + SS2 + (W[j] ^ W[j + 4])\n"
-            "        TT2 = G1(E, F, G) + H + SS1 + W[j]\n"
+            "    for j in range(0, 64):\n"
+            "        if b8(j) < b8(16):\n"
+            "            SS1 = ((A << 12) + E + (T0 << j)) << 7\n"
+            "            SS2 = SS1 ^ (A << 12)\n"
+            "            TT1 = F0(A, B, C) + D + SS2 + (W[j] ^ W[j + 4])\n"
+            "            TT2 = G0(E, F, G) + H + SS1 + W[j]\n"
+            "        else:\n"
+            "            SS1 = ((A << 12) + E + (T1 << j)) << 7\n"
+            "            SS2 = SS1 ^ (A << 12)\n"
+            "            TT1 = F1(A, B, C) + D + SS2 + (W[j] ^ W[j + 4])\n"
+            "            TT2 = G1(E, F, G) + H + SS1 + W[j]\n"
             "        A, B, C, D, E, F, G, H = TT1, A, B << 9, C, P0(TT2), E, F << 19, G\n"
             "    V[0] = A ^ V[0]\n"
             "    V[1] = B ^ V[1]\n"
@@ -722,6 +773,7 @@ if __name__ == '__main__':
             "    V[5] = F ^ V[5]\n"
             "    V[6] = G ^ V[6]\n"
             "    V[7] = H ^ V[7]\n"
+            "    return V\n"
             "V = [\n"
             "    b32(0x7380166f), b32(0x4914b2b9), b32(0x172442d7), b32(0xda8a0600),\n"
             "    b32(0xa96f30bc), b32(0x163138aa), b32(0xe38dee4d), b32(0xb0fb0e4e),\n"
