@@ -460,11 +460,16 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Return(self, node):
         return 'return', self.visit(node.value) if node.value else None
     def visit_If(self, node):
-        body = node.body if self.visit(node.test) else node.orelse
-        for stmt in body:
-            flag, result = self.visit(stmt)
-            if flag == 'continue' or flag == 'break' or flag == 'return':
-                return flag, result
+        if self.visit(node.test):
+            for stmt in node.body:
+                flag, result = self.visit(stmt)
+                if flag == 'continue' or flag == 'break' or flag == 'return':
+                    return flag, result
+        else:
+            for stmt in node.orelse:
+                flag, result = self.visit(stmt)
+                if flag == 'continue' or flag == 'break' or flag == 'return':
+                    return flag, result
         return None, None
     def visit_While(self, node):
         while self.visit(node.test):
@@ -480,11 +485,24 @@ class Compiler(ast.NodeVisitor, Assembly):
                 break
             if flag == 'return':
                 return flag, result
+        else:
+            for stmt in node.orelse:
+                flag, result = self.visit(stmt)
+                if flag == 'continue' or flag == 'break' or flag == 'return':
+                    return flag, result
         return None, None
     def visit_For(self, node):
+        if not isinstance(node.target, ast.Name):
+            raise SyntaxError('invalid iteration target')
         iter = self.visit(node.iter)
-        if not isinstance(iter, range) or not isinstance(node.target, ast.Name):
-            raise NotImplementedError('only support range iteration')
+        if isinstance(iter, range):
+            iter = iter
+        elif isinstance(iter, list):
+            iter = range(len(iter))
+        elif isinstance(iter, dict):
+            iter = iter.keys()
+        else:
+            raise TypeError('only support iteration over range, list, and dict')
         for value in iter:
             self.stack[-1][node.target.id] = value
             for stmt in node.body:
@@ -499,6 +517,11 @@ class Compiler(ast.NodeVisitor, Assembly):
                 break
             if flag == 'return':
                 return flag, result
+        else:
+            for stmt in node.orelse:
+                flag, result = self.visit(stmt)
+                if flag == 'continue' or flag == 'break' or flag == 'return':
+                    return flag, result
         return None, None
     def visit_ListComp(self, node):
         def visit(generators):
@@ -506,11 +529,19 @@ class Compiler(ast.NodeVisitor, Assembly):
                 yield self.visit(node.elt)
                 return
             generator, *generators = generators
+            if not isinstance(generator.target, ast.Name):
+                raise SyntaxError('invalid iteration target')
             iter = self.visit(generator.iter)
-            if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
-                raise NotImplementedError('only support range iteration')
+            if isinstance(iter, range):
+                iter = iter
+            elif isinstance(iter, list):
+                iter = range(len(iter))
+            elif isinstance(iter, dict):
+                iter = iter.keys()
+            else:
+                raise TypeError('only support iteration over range, list, and dict')
             call_stack = self.stack
-            self.stack = call_stack + [{}]
+            self.stack = self.stack + [{}]
             for value in iter:
                 self.stack[-1][generator.target.id] = value
                 if all(self.visit(cond) for cond in generator.ifs):
@@ -523,11 +554,19 @@ class Compiler(ast.NodeVisitor, Assembly):
                 yield self.visit(node.key), self.visit(node.value)
                 return
             generator, *generators = generators
+            if not isinstance(generator.target, ast.Name):
+                raise SyntaxError('invalid iteration target')
             iter = self.visit(generator.iter)
-            if not isinstance(iter, range) or not isinstance(generator.target, ast.Name):
-                raise NotImplementedError('only support range iteration')
+            if isinstance(iter, range):
+                iter = iter
+            elif isinstance(iter, list):
+                iter = range(len(iter))
+            elif isinstance(iter, dict):
+                iter = iter.keys()
+            else:
+                raise TypeError('only support iteration over range, list, and dict')
             call_stack = self.stack
-            self.stack = call_stack + [{}]
+            self.stack = self.stack + [{}]
             for value in iter:
                 self.stack[-1][generator.target.id] = value
                 if all(self.visit(cond) for cond in generator.ifs):
@@ -580,7 +619,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         def assign(target, value):
             if isinstance(target, ast.Tuple):
                 if not isinstance(value, tuple):
-                    raise SyntaxError('invalid assignment value')
+                    raise TypeError('mismatched assignment')
                 for target, value in zip(target.elts, value, strict = True):
                     assign(target, value)
                 return
@@ -607,7 +646,7 @@ class Compiler(ast.NodeVisitor, Assembly):
                     enums.append(self.ENUM(slice, range(max(map(len, temps)))))
                     temps = [next for temp in temps for next in temp]
                     continue
-                raise TypeError('subscripting must be applied to a list or a dict')
+                raise TypeError('item assignment must be applied to a list or a dict')
             self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
         value = self.visit(node.value)
         for target in node.targets:
@@ -616,14 +655,14 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Delete(self, node):
         for target in node.targets:
             if not isinstance(target, ast.Name):
-                raise SyntaxError('delete target must be a name')
+                raise SyntaxError('invalid deletion target')
             self.stack[-1].pop(target.id)
         return None, None
     def visit_Name(self, node):
         for scope in reversed(self.stack):
             if node.id in scope:
                 return scope[node.id]
-        raise NameError('name not found: ' + node.id)
+        raise NameError('undefined name: {}'.format(node.id))
     def visit_Subscript(self, node):
         slice = self.visit(node.slice)
         value = self.visit(node.value)
@@ -631,7 +670,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             return self.GETBYKEY(value, self.ENUM(slice if isinstance(slice, Vector | int) else self.ELEM(slice), range(len(value))))
         if isinstance(value, dict):
             return self.GETBYKEY(value, self.ENUM(slice if isinstance(slice, Vector | int) else self.ELEM(slice), value.keys()))
-        raise TypeError('subscripting must be applied to a list or a dict')
+        raise TypeError('item access must be applied to a list or a dict')
     def visit_Call(self, node):
         return self.visit(node.func)(*map(self.visit, node.args))
     def visit_Constant(self, node):
