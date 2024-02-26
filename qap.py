@@ -717,9 +717,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         if isinstance(node.op, ast.Div):
             return self.DIV(asval(left), asval(right))
         if isinstance(node.op, ast.Pow):
-            if isint(right):
-                return self.EXP(left, right) if isbin(left) else self.POW(asval(left), right)
-            return self.POW(left, asbin(right)) if isbin(left) else self.BINPOW(asval(left), asbin(right))
+            return (self.POW(left, right) if isbin(left) else self.BINPOW(asval(left), right)) if isbin(right) else (self.EXP(left, asint(right)) if isbin(left) else self.POW(asval(left), asint(right)))
         if isinstance(node.op, ast.FloorDiv):
             return self.BINDIVMOD(asbin(left), asbin(right))[0]
         if isinstance(node.op, ast.Mod):
