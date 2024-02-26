@@ -25,16 +25,7 @@ for Z in range(2, P):
     if pow(Z, (P - 1) // 2, P) != 1:
         break
 T = pow(Z, (P - 1) // K, P) # primitive K-th root of unity
-class Timer:
-    def __init__(self, text):
-        self.text = text
-    def __enter__(self):
-        print(self.text, end = ' ', flush = True)
-        self.beg = time.time()
-    def __exit__(self, *info):
-        self.end = time.time()
-        print('{:.3f} sec'.format(self.end - self.beg))
-class Vector:
+class Var:
     def __init__(self, args):
         self.args = args
     def items(self):
@@ -48,14 +39,14 @@ class Vector:
 class Assembly:
     def __init__(self):
         self.cons = [] # constraints
-        self.dims = [lambda getw, args: 1] # variables
+        self.wits = [lambda getw, args: 1] # witness functions
         self.pubs = {0: 'unit'}
     def con_count(self):
         return len(self.cons)
-    def dim_count(self):
-        return len(self.dims)
+    def wit_count(self):
+        return len(self.wits)
     def setup(self, α, β, γ, δ, x):
-        M = self.dim_count()
+        M = self.wit_count()
         N = self.con_count()
         I = 1
         while I < N:
@@ -89,7 +80,7 @@ class Assembly:
         y1I = [G1 * (pow(x, i, P) * Δ * Zx % P) for i in range(I - 1)]
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
-        M = self.dim_count()
+        M = self.wit_count()
         N = self.con_count()
         I = 1
         while I < N:
@@ -99,7 +90,7 @@ class Assembly:
         S = pow(T, K // J, P) # primitive J-th root of unity
         wM = []
         getw = lambda xM: sum(wM[m] * x for m, x in xM.items()) % P
-        for func in self.dims:
+        for func in self.wits:
             wM.append(func(getw, args))
         uU = [wM[m] for m in                      self.pubs]
         vV = [wM[m] for m in range(M) if m not in self.pubs]
@@ -138,41 +129,41 @@ class Assembly:
         D1 = sum((u1 * u for u1, u in zip(u1U, uU)), D1)
         return pairing.apply(B2, A1) == pairing.apply(β2, α1) + pairing.apply(γ2, D1) + pairing.apply(δ2, C1)
     def __bind(self, func, pubname = None):
-        i = len(self.dims)
-        self.dims.append(func)
+        i = len(self.wits)
+        self.wits.append(func)
         if pubname is not None:
             self.pubs[i] = pubname
-        return Vector({i: 1})
-    def VAR(self, name, public = False):
+        return Var({i: 1})
+    def NEWVAR(self, name, public = False):
         return self.__bind(lambda getw, args: args[name], name if public else None)
     def REVEAL(self, name, x):
         if isinstance(x, int):
-            x = Vector({0: x})
+            x = Var({0: x})
         return self.__bind(lambda getw, args: getw(x), name if name else 'unnamed')
     def ASSERT(self, x, y, z, *, msg = 'assertion error'):
         if isinstance(x, int) and isinstance(y, int) and isinstance(z, int):
             assert x * y % P == z, msg
             return
         if isinstance(x, int):
-            x = Vector({0: x})
+            x = Var({0: x})
         if isinstance(y, int):
-            y = Vector({0: y})
+            y = Var({0: y})
         if isinstance(z, int):
-            z = Vector({0: z})
+            z = Var({0: z})
         self.cons.append((x, y, z, msg))
     def ADD(self, x, y):
         if isinstance(y, int):
-            y = Vector({0: y})
+            y = Var({0: y})
         if isinstance(x, int):
-            x = Vector({0: x})
-        z = Vector({k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)})
+            x = Var({0: x})
+        z = Var({k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)})
         return z.get(0, 0) if z.keys() <= {0} else z
     def SUB(self, x, y):
         if isinstance(y, int):
-            y = Vector({0: y})
+            y = Var({0: y})
         if isinstance(x, int):
-            x = Vector({0: x})
-        z = Vector({k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)})
+            x = Var({0: x})
+        z = Var({k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)})
         return z.get(0, 0) if z.keys() <= {0} else z
     def MUL(self, x, y, *, msg = 'multiplication error'):
         if x == 0 or y == 0:
@@ -180,9 +171,9 @@ class Assembly:
         if isinstance(x, int) and isinstance(y, int):
             return x * y % P
         if isinstance(y, int):
-            return Vector({i: m * y % P for i, m in x.items()})
+            return Var({i: m * y % P for i, m in x.items()})
         if isinstance(x, int):
-            return Vector({i: m * x % P for i, m in y.items()})
+            return Var({i: m * x % P for i, m in y.items()})
         z = self.__bind(lambda getw, args: getw(x) * getw(y) % P)
         self.ASSERT(x, y, z, msg = msg)
         return z
@@ -195,9 +186,9 @@ class Assembly:
             return x * util.modinv(y, P) % P
         if isinstance(y, int):
             t = util.modinv(y, P)
-            return Vector({i: m * t % P for i, m in x.items()})
+            return Var({i: m * t % P for i, m in x.items()})
         if isinstance(x, int):
-            x = Vector({0: x})
+            x = Var({0: x})
         z = self.__bind(lambda getw, args: getw(x) * util.modinv(getw(y), P) % P)
         self.ASSERT(z, y, x, msg = msg)
         return z
@@ -273,7 +264,7 @@ class Assembly:
         for i in List:
             r = self.ADD(r, i)
         return r
-    def VAL(self, xBin):
+    def GALOIS(self, xBin):
         return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
     def GETBYKEY(self, Value, iKey):
         if isinstance(Value, dict):
@@ -341,25 +332,25 @@ class Assembly:
     def BINADD(self, xBin, yBin, c = 0):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.ADD(0, b) for b in yBin), self.ADD(0, c))), BLEN + 1)
+        zBin = self.BINARY(self.ADD(self.GALOIS(xBin), self.ADD(self.GALOIS(self.ADD(0, b) for b in yBin), self.ADD(0, c))), BLEN + 1)
         return zBin[:BLEN], self.ADD(0, zBin[BLEN])
     def BINSUB(self, xBin, yBin, c = 0):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.SUB(1, b) for b in yBin), self.SUB(1, c))), BLEN + 1)
+        zBin = self.BINARY(self.ADD(self.GALOIS(xBin), self.ADD(self.GALOIS(self.SUB(1, b) for b in yBin), self.SUB(1, c))), BLEN + 1)
         return zBin[:BLEN], self.SUB(1, zBin[BLEN])
     def BINMUL(self, xBin, yBin, cBin = [], dBin = []):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         assert len(cBin) <= BLEN
         assert len(dBin) <= BLEN
-        zBin = self.BINARY(self.ADD(self.MUL(self.VAL(xBin), self.VAL(yBin)), self.ADD(self.VAL(cBin), self.VAL(dBin))), BLEN * 2)
+        zBin = self.BINARY(self.ADD(self.MUL(self.GALOIS(xBin), self.GALOIS(yBin)), self.ADD(self.GALOIS(cBin), self.GALOIS(dBin))), BLEN * 2)
         return zBin[:BLEN], zBin[BLEN:]
     def BINDIVMOD(self, xBin, yBin, *, msg = 'binary divmod error'):
         QLEN = len(xBin)
         RLEN = len(yBin)
-        x = self.VAL(xBin)
-        y = self.VAL(yBin)
+        x = self.GALOIS(xBin)
+        y = self.GALOIS(yBin)
         if x == 0:
             return [0] * QLEN, [0] * RLEN
         if y == 0:
@@ -369,9 +360,9 @@ class Assembly:
             assert 0 <= x % y < 2 ** RLEN, msg
             return [x // y >> I & 1 for I in range(QLEN)], [x % y >> I & 1 for I in range(RLEN)]
         if isinstance(x, int):
-            x = Vector({0: x})
+            x = Var({0: x})
         if isinstance(y, int):
-            y = Vector({0: y})
+            y = Var({0: y})
         q = self.__bind(lambda getw, args: getw(x) // getw(y))
         r = self.__bind(lambda getw, args: getw(x) % getw(y))
         self.ASSERT(q, y, self.SUB(x, r), msg = msg) # assert y * q == x - r
@@ -397,55 +388,55 @@ class Assembly:
     def BINGE(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.VAL(xBin), self.VAL(yBin))), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.GALOIS(xBin), self.GALOIS(yBin))), BLEN + 1)[BLEN]
     def BINLE(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.VAL(yBin), self.VAL(xBin))), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.GALOIS(yBin), self.GALOIS(xBin))), BLEN + 1)[BLEN]
     def BINGT(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.VAL(xBin), self.VAL(yBin)), 1)), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 1)), BLEN + 1)[BLEN]
     def BINLT(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.VAL(yBin), self.VAL(xBin)), 1)), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 1)), BLEN + 1)[BLEN]
     def ASSERT_BINGE(self, xBin, yBin, *, msg = 'BINGE check failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.VAL(xBin), self.VAL(yBin)), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), BLEN, msg = msg)
     def ASSERT_BINLE(self, xBin, yBin, *, msg = 'BINLE check failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.VAL(yBin), self.VAL(xBin)), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), BLEN, msg = msg)
     def ASSERT_BINGT(self, xBin, yBin, *, msg = 'BINGT check failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.SUB(self.VAL(xBin), self.VAL(yBin)), 1), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 1), BLEN, msg = msg)
     def ASSERT_BINLT(self, xBin, yBin, *, msg = 'BINLT check failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.SUB(self.VAL(yBin), self.VAL(xBin)), 1), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 1), BLEN, msg = msg)
 def isint(x):
     return isinstance(x, int)
-def isval(x):
-    return isinstance(x, int | Vector)
+def isgal(x):
+    return isinstance(x, int | Var)
 def isbin(x):
-    return isinstance(x, list) and all(isinstance(b, int | Vector) for b in x)
+    return isinstance(x, list) and all(isinstance(b, int | Var) for b in x)
 def asint(x):
     if isinstance(x, int):
         return x
     raise TypeError('expected a constant value')
-def asval(x):
-    if isinstance(x, int | Vector):
+def asgal(x):
+    if isinstance(x, int | Var):
         return x
     raise TypeError('expected a value')
 def asbin(x):
-    if isinstance(x, list) and all(isinstance(b, int | Vector) for b in x):
+    if isinstance(x, list) and all(isinstance(b, int | Var) for b in x):
         return x
     raise TypeError('expected a binary')
 def shape(x):
-    if isinstance(x, int | Vector):
+    if isinstance(x, int | Var):
         return (), None
     if isinstance(x, tuple):
         return (), tuple(shape(v) for v in x)
@@ -468,16 +459,16 @@ class Compiler(ast.NodeVisitor, Assembly):
         Assembly.__init__(self)
         self.stack = [{
             'range': lambda *args: range(*map(asint, args)),
-            'log': lambda fmt, *args: print(fmt.format(*args)),
-            'val': lambda x: self.VAL(x) if isbin(x) else asval(x),
-            'b8':  lambda x: (x + [0] *  8)[: 8] if isbin(x) else self.BINARY(asval(x),  8),
-            'b16': lambda x: (x + [0] * 16)[:16] if isbin(x) else self.BINARY(asval(x), 16),
-            'b32': lambda x: (x + [0] * 32)[:32] if isbin(x) else self.BINARY(asval(x), 32),
-            'b64': lambda x: (x + [0] * 64)[:64] if isbin(x) else self.BINARY(asval(x), 64),
-            'bin': lambda x, n: (x + [0] * asint(n))[:n] if isbin(x) else self.BINARY(asval(x), asint(n)),
-            'private': lambda fmt, *args: self.VAR(fmt.format(*args) if args else fmt),
-            'public': lambda fmt, *args: self.VAR(fmt.format(*args) if args else fmt, public = True),
-            'reveal': lambda x, fmt, *args: self.REVEAL(fmt.format(*args) if args else fmt, self.VAL(x) if isbin(x) else asval(x)),
+            'log': lambda fmt, *args: print(fmt.format(*map(asint, args))),
+            'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
+            'b8':  lambda x: (x + [0] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
+            'b16': lambda x: (x + [0] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
+            'b32': lambda x: (x + [0] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
+            'b64': lambda x: (x + [0] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
+            'bin': lambda x, n: (x + [0] * asint(n))[:n] if isbin(x) else self.BINARY(asgal(x), asint(n)),
+            'private': lambda fmt, *args: self.NEWVAR(fmt.format(*map(asint, args)) if args else fmt),
+            'public': lambda fmt, *args: self.NEWVAR(fmt.format(*map(asint, args)) if args else fmt, public = True),
+            'reveal': lambda x, fmt, *args: self.REVEAL(fmt.format(*map(asint, args)) if args else fmt, self.GALOIS(x) if isbin(x) else asgal(x)),
         }]
     def visit_Module(self, node):
         for stmt in node.body:
@@ -618,9 +609,9 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Assert(self, node):
         test = self.visit(node.test)
         if node.msg is None:
-            self.ASSERT_NE(0, asval(test))
+            self.ASSERT_NE(0, asgal(test))
         else:
-            self.ASSERT_NE(0, asval(test), msg = self.visit(node.msg))
+            self.ASSERT_NE(0, asgal(test), msg = self.visit(node.msg))
         return None, None
     def visit_FunctionDef(self, node):
         def_stack = self.stack
@@ -680,7 +671,7 @@ class Compiler(ast.NodeVisitor, Assembly):
                 if len(outer) == 0:
                     raise TypeError('cannot index a scalar')
                 keys, *outer = outer
-                enums.append(self.ENUM(self.VAL(slice) if isbin(slice) else asval(slice), keys))
+                enums.append(self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
             if (tuple(outer), inner) != shape(value):
                 raise TypeError('inconsistent shape of target and value in indexed assignment')
             self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
@@ -706,7 +697,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         if len(outer) == 0:
             raise TypeError('cannot index a scalar')
         keys, *outer = outer
-        return self.GETBYKEY(value, self.ENUM(self.VAL(slice) if isbin(slice) else asval(slice), keys))
+        return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
     def visit_Call(self, node):
         return self.visit(node.func)(*map(self.visit, node.args))
     def visit_Constant(self, node):
@@ -721,15 +712,15 @@ class Compiler(ast.NodeVisitor, Assembly):
         left = self.visit(node.left)
         right = self.visit(node.right)
         if isinstance(node.op, ast.Add):
-            return self.BINADD(left, right)[0] if isbin(left) and isbin(right) else self.ADD(asval(left), asval(right))
+            return self.BINADD(left, right)[0] if isbin(left) and isbin(right) else self.ADD(asgal(left), asgal(right))
         if isinstance(node.op, ast.Sub):
-            return self.BINSUB(left, right)[0] if isbin(left) and isbin(right) else self.SUB(asval(left), asval(right))
+            return self.BINSUB(left, right)[0] if isbin(left) and isbin(right) else self.SUB(asgal(left), asgal(right))
         if isinstance(node.op, ast.Mult):
-            return self.BINMUL(left, right)[0] if isbin(left) and isbin(right) else self.MUL(asval(left), asval(right))
+            return self.BINMUL(left, right)[0] if isbin(left) and isbin(right) else self.MUL(asgal(left), asgal(right))
         if isinstance(node.op, ast.Div):
-            return self.DIV(asval(left), asval(right))
+            return self.DIV(asgal(left), asgal(right))
         if isinstance(node.op, ast.Pow):
-            return (self.POW(left, right) if isbin(left) else self.BINPOW(asval(left), right)) if isbin(right) else (self.EXP(left, asint(right)) if isbin(left) else self.POW(asval(left), asint(right)))
+            return (self.POW(left, right) if isbin(left) else self.BINPOW(asgal(left), right)) if isbin(right) else (self.EXP(left, asint(right)) if isbin(left) else self.POW(asgal(left), asint(right)))
         if isinstance(node.op, ast.FloorDiv):
             return self.BINDIVMOD(asbin(left), asbin(right))[0]
         if isinstance(node.op, ast.Mod):
@@ -750,18 +741,18 @@ class Compiler(ast.NodeVisitor, Assembly):
         if isinstance(node.op, ast.Invert):
             return self.BITNOT(asbin(operand))
         if isinstance(node.op, ast.Not):
-            return self.NOT(asval(operand))
+            return self.NOT(asgal(operand))
         raise SyntaxError('unsupported unary operation')
     def visit_BoolOp(self, node):
         if isinstance(node.op, ast.And):
             result = 1
             for value in node.values:
-                result = self.AND(result, asval(self.visit(value)))
+                result = self.AND(result, asgal(self.visit(value)))
             return result
         if isinstance(node.op, ast.Or):
             result = 0
             for value in node.values:
-                result = self.OR(result, asval(self.visit(value)))
+                result = self.OR(result, asgal(self.visit(value)))
             return result
         raise SyntaxError('unsupported boolean operation')
     def visit_Compare(self, node):
@@ -769,9 +760,9 @@ class Compiler(ast.NodeVisitor, Assembly):
         left = self.visit(node.left)
         for op, right in zip(node.ops, map(self.visit, node.comparators)):
             if isinstance(op, ast.Eq):
-                result = self.AND(result, self.NOT(self.NEZ(self.SUB(self.VAL(left) if isbin(left) else asval(left), self.VAL(right) if isbin(right) else asval(right)))))
+                result = self.AND(result, self.NOT(self.NEZ(self.SUB(self.GALOIS(left) if isbin(left) else asgal(left), self.GALOIS(right) if isbin(right) else asgal(right)))))
             elif isinstance(op, ast.NotEq):
-                result = self.AND(result, self.NEZ(self.SUB(self.VAL(left) if isbin(left) else asval(left), self.VAL(right) if isbin(right) else asval(right))))
+                result = self.AND(result, self.NEZ(self.SUB(self.GALOIS(left) if isbin(left) else asgal(left), self.GALOIS(right) if isbin(right) else asgal(right))))
             elif isinstance(op, ast.Lt):
                 result = self.AND(result, self.BINLT(asbin(left), asbin(right)))
             elif isinstance(op, ast.LtE):
@@ -789,9 +780,18 @@ class Compiler(ast.NodeVisitor, Assembly):
         right = self.visit(node.orelse)
         if shape(left) != shape(right):
             raise TypeError('inconsistent shape of left and right values in conditional expression')
-        return self.IF(asval(self.visit(node.test)), left, right)
+        return self.IF(asgal(self.visit(node.test)), left, right)
     def generic_visit(self, node):
         raise SyntaxError('unsupported syntax')
+class Timer:
+    def __init__(self, text):
+        self.text = text
+    def __enter__(self):
+        print(self.text, end = ' ', flush = True)
+        self.beg = time.time()
+    def __exit__(self, *info):
+        self.end = time.time()
+        print('{:.3f} sec'.format(self.end - self.beg))
 if __name__ == '__main__':
     with Timer('Compiling program...'):
         asm = Compiler()
@@ -849,7 +849,7 @@ if __name__ == '__main__':
             "    reveal(V[i], 'V[{:#04x}]', i)\n"
         ))
     print('Number of constraints:', asm.con_count())
-    print('Number of dimensions:', asm.dim_count())
+    print('Number of witnesses:', asm.wit_count())
     with Timer('Setting up QAP...'):
         α = random.randrange(1, P)
         β = random.randrange(1, P)
@@ -857,7 +857,7 @@ if __name__ == '__main__':
         δ = random.randrange(1, P)
         x = random.randrange(1, P)
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = asm.setup(α, β, γ, δ, x)
-    with Timer('Generating witness...'):
+    with Timer('Generating proof...'):
         args = {'W[{:#04x}]'.format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
         r = random.randrange(1, P)
         s = random.randrange(1, P)
