@@ -268,7 +268,7 @@ class Assembly:
         for i in List:
             r = self.ADD(r, i)
         return r
-    def ENUM(self, xBin):
+    def VAL(self, xBin):
         return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
     def GETBYKEY(self, Value, iKey):
         if isinstance(Value, dict):
@@ -333,25 +333,25 @@ class Assembly:
     def BINADD(self, xBin, yBin, c = 0):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        zBin = self.BINARY(self.ADD(self.ENUM(xBin), self.ADD(self.ENUM(self.ADD(0, b) for b in yBin), self.ADD(0, c))), BLEN + 1)
+        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.ADD(0, b) for b in yBin), self.ADD(0, c))), BLEN + 1)
         return zBin[:BLEN], self.ADD(0, zBin[BLEN])
     def BINSUB(self, xBin, yBin, c = 0):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        zBin = self.BINARY(self.ADD(self.ENUM(xBin), self.ADD(self.ENUM(self.SUB(1, b) for b in yBin), self.SUB(1, c))), BLEN + 1)
+        zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.SUB(1, b) for b in yBin), self.SUB(1, c))), BLEN + 1)
         return zBin[:BLEN], self.SUB(1, zBin[BLEN])
     def BINMUL(self, xBin, yBin, cBin = [], dBin = []):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         assert len(cBin) <= BLEN
         assert len(dBin) <= BLEN
-        zBin = self.BINARY(self.ADD(self.MUL(self.ENUM(xBin), self.ENUM(yBin)), self.ADD(self.ENUM(cBin), self.ENUM(dBin))), BLEN * 2)
+        zBin = self.BINARY(self.ADD(self.MUL(self.VAL(xBin), self.VAL(yBin)), self.ADD(self.VAL(cBin), self.VAL(dBin))), BLEN * 2)
         return zBin[:BLEN], zBin[BLEN:]
     def BINDIVMOD(self, xBin, yBin, *, msg = 'binary divmod error'):
         QLEN = len(xBin)
         RLEN = len(yBin)
-        x = self.ENUM(xBin)
-        y = self.ENUM(yBin)
+        x = self.VAL(xBin)
+        y = self.VAL(yBin)
         if x == 0:
             return [0] * QLEN, [0] * RLEN
         if y == 0:
@@ -389,35 +389,35 @@ class Assembly:
     def BINGE(self, xBin, yBin):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.ENUM(xBin), self.ENUM(yBin))), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.VAL(xBin), self.VAL(yBin))), BLEN + 1)[BLEN]
     def BINLE(self, xBin, yBin):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.ENUM(yBin), self.ENUM(xBin))), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.VAL(yBin), self.VAL(xBin))), BLEN + 1)[BLEN]
     def BINGT(self, xBin, yBin):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.ENUM(xBin), self.ENUM(yBin)), 1)), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.VAL(xBin), self.VAL(yBin)), 1)), BLEN + 1)[BLEN]
     def BINLT(self, xBin, yBin):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.ENUM(yBin), self.ENUM(xBin)), 1)), BLEN + 1)[BLEN]
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.VAL(yBin), self.VAL(xBin)), 1)), BLEN + 1)[BLEN]
     def ASSERT_BINGE(self, xBin, yBin, *, msg = 'BINGE check failed'):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.ENUM(xBin), self.ENUM(yBin)), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.VAL(xBin), self.VAL(yBin)), BLEN, msg = msg)
     def ASSERT_BINLE(self, xBin, yBin, *, msg = 'BINLE check failed'):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.ENUM(yBin), self.ENUM(xBin)), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.VAL(yBin), self.VAL(xBin)), BLEN, msg = msg)
     def ASSERT_BINGT(self, xBin, yBin, *, msg = 'BINGT check failed'):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.SUB(self.ENUM(xBin), self.ENUM(yBin)), 1), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.SUB(self.VAL(xBin), self.VAL(yBin)), 1), BLEN, msg = msg)
     def ASSERT_BINLT(self, xBin, yBin, *, msg = 'BINLT check failed'):
         assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.SUB(self.ENUM(yBin), self.ENUM(xBin)), 1), BLEN, msg = msg)
+        self.BINARY(self.SUB(self.SUB(self.VAL(yBin), self.VAL(xBin)), 1), BLEN, msg = msg)
 def isint(x):
     return isinstance(x, int)
 def isval(x):
@@ -461,7 +461,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         self.stack = [{
             'range': lambda *args: range(*map(asint, args)),
             'log': lambda fmt, *args: print(fmt.format(*args)),
-            'val': lambda x: self.ENUM(x) if isbin(x) else asval(x),
+            'val': lambda x: self.VAL(x) if isbin(x) else asval(x),
             'b8':  lambda x: x[: 8] + [0] * ( 8 - len(x)) if isbin(x) else self.BINARY(asval(x),  8),
             'b16': lambda x: x[:16] + [0] * (16 - len(x)) if isbin(x) else self.BINARY(asval(x), 16),
             'b32': lambda x: x[:32] + [0] * (32 - len(x)) if isbin(x) else self.BINARY(asval(x), 32),
@@ -469,7 +469,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             'bin': lambda x, n: x[:n] + [0] * (n - len(x)) if isbin(x) else self.BINARY(asval(x), n),
             'private': lambda fmt, *args: self.VAR(fmt.format(*args) if args else fmt),
             'public': lambda fmt, *args: self.VAR(fmt.format(*args) if args else fmt, public = True),
-            'reveal': lambda x, fmt, *args: self.REVEAL(fmt.format(*args) if args else fmt, self.ENUM(x) if isbin(x) else asval(x)),
+            'reveal': lambda x, fmt, *args: self.REVEAL(fmt.format(*args) if args else fmt, self.VAL(x) if isbin(x) else asval(x)),
         }]
     def visit_Module(self, node):
         for stmt in node.body:
@@ -668,7 +668,7 @@ class Compiler(ast.NodeVisitor, Assembly):
                 if len(outer) == 0:
                     raise TypeError('cannot index a scalar')
                 keys, *outer = outer
-                enums.append(self.ENUM(self.ENUM(slice) if isbin(slice) else asval(slice), keys))
+                enums.append(self.ENUM(self.VAL(slice) if isbin(slice) else asval(slice), keys))
             if (tuple(outer), inner) != shape(value):
                 raise TypeError('mismatched assignment')
             self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
@@ -694,7 +694,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         if len(outer) == 0:
             raise TypeError('cannot index a scalar')
         keys, *outer = outer
-        return self.GETBYKEY(value, self.ENUM(self.ENUM(slice) if isbin(slice) else asval(slice), keys))
+        return self.GETBYKEY(value, self.ENUM(self.VAL(slice) if isbin(slice) else asval(slice), keys))
     def visit_Call(self, node):
         return self.visit(node.func)(*map(self.visit, node.args))
     def visit_Constant(self, node):
@@ -759,9 +759,9 @@ class Compiler(ast.NodeVisitor, Assembly):
         left = self.visit(node.left)
         for op, right in zip(node.ops, map(self.visit, node.comparators)):
             if isinstance(op, ast.Eq):
-                result = self.AND(result, self.NOT(self.NEZ(self.SUB(self.ENUM(left) if isbin(left) else asval(left), self.ENUM(right) if isbin(right) else asval(right)))))
+                result = self.AND(result, self.NOT(self.NEZ(self.SUB(self.VAL(left) if isbin(left) else asval(left), self.VAL(right) if isbin(right) else asval(right)))))
             elif isinstance(op, ast.NotEq):
-                result = self.AND(result, self.NEZ(self.SUB(self.ENUM(left) if isbin(left) else asval(left), self.ENUM(right) if isbin(right) else asval(right))))
+                result = self.AND(result, self.NEZ(self.SUB(self.VAL(left) if isbin(left) else asval(left), self.VAL(right) if isbin(right) else asval(right))))
             elif isinstance(op, ast.Lt):
                 result = self.AND(result, self.BINLT(asbin(left), asbin(right)))
             elif isinstance(op, ast.LtE):
