@@ -325,23 +325,26 @@ class Assembly:
     def BITNOT(self, xBin):
         return [self.NOT(b) for b in xBin]
     def BITAND(self, xBin, yBin):
-        return [self.AND(a, b) for a, b in zip(xBin, yBin, strict = True)]
+        # assert len(xBin) == len(yBin)
+        return [self.AND(a, b) for a, b in zip(xBin, yBin)]
     def BITOR(self, xBin, yBin):
-        return [self.OR(a, b) for a, b in zip(xBin, yBin, strict = True)]
+        # assert len(xBin) == len(yBin)
+        return [self.OR(a, b) for a, b in zip(xBin, yBin)]
     def BITXOR(self, xBin, yBin):
-        return [self.XOR(a, b) for a, b in zip(xBin, yBin, strict = True)]
+        # assert len(xBin) == len(yBin)
+        return [self.XOR(a, b) for a, b in zip(xBin, yBin)]
     def BINADD(self, xBin, yBin, c = 0):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.ADD(0, b) for b in yBin), self.ADD(0, c))), BLEN + 1)
         return zBin[:BLEN], self.ADD(0, zBin[BLEN])
     def BINSUB(self, xBin, yBin, c = 0):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         zBin = self.BINARY(self.ADD(self.VAL(xBin), self.ADD(self.VAL(self.SUB(1, b) for b in yBin), self.SUB(1, c))), BLEN + 1)
         return zBin[:BLEN], self.SUB(1, zBin[BLEN])
     def BINMUL(self, xBin, yBin, cBin = [], dBin = []):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         assert len(cBin) <= BLEN
         assert len(dBin) <= BLEN
@@ -387,35 +390,35 @@ class Assembly:
             NEXP = NEXP >> 1
         return self.BINPOW(xBin, NBIN if NBIN else [0])
     def BINGE(self, xBin, yBin):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.VAL(xBin), self.VAL(yBin))), BLEN + 1)[BLEN]
     def BINLE(self, xBin, yBin):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.VAL(yBin), self.VAL(xBin))), BLEN + 1)[BLEN]
     def BINGT(self, xBin, yBin):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.VAL(xBin), self.VAL(yBin)), 1)), BLEN + 1)[BLEN]
     def BINLT(self, xBin, yBin):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.VAL(yBin), self.VAL(xBin)), 1)), BLEN + 1)[BLEN]
     def ASSERT_BINGE(self, xBin, yBin, *, msg = 'BINGE check failed'):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.VAL(xBin), self.VAL(yBin)), BLEN, msg = msg)
     def ASSERT_BINLE(self, xBin, yBin, *, msg = 'BINLE check failed'):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.VAL(yBin), self.VAL(xBin)), BLEN, msg = msg)
     def ASSERT_BINGT(self, xBin, yBin, *, msg = 'BINGT check failed'):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.SUB(self.VAL(xBin), self.VAL(yBin)), 1), BLEN, msg = msg)
     def ASSERT_BINLT(self, xBin, yBin, *, msg = 'BINLT check failed'):
-        assert len(xBin) == len(yBin)
+        # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.SUB(self.VAL(yBin), self.VAL(xBin)), 1), BLEN, msg = msg)
 def isint(x):
@@ -617,9 +620,11 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_FunctionDef(self, node):
         def_stack = self.stack
         def func(*args):
+            if len(args) != len(node.args.args):
+                raise TypeError('mismatched number of arguments')
             call_stack = self.stack
             self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args, strict = True):
+            for target, arg in zip(node.args.args, args):
                 self.stack[-1][target.arg] = arg
             for stmt in node.body:
                 flag, result = self.visit(stmt)
@@ -636,9 +641,11 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Lambda(self, node):
         def_stack = self.stack
         def func(*args):
+            if len(args) != len(node.args.args):
+                raise TypeError('mismatched number of arguments')
             call_stack = self.stack
             self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args, strict = True):
+            for target, arg in zip(node.args.args, args):
                 self.stack[-1][target.arg] = arg
             result = self.visit(node.body)
             self.stack = call_stack
