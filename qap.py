@@ -1,10 +1,23 @@
 #!/usr/bin/python3
 import time
 import util
-import random
 import ast
-from py_ecc.optimized_bn128 import G1, G2, curve_order, multiply, add, neg, pairing
-P = curve_order
+import random
+import pypbc
+params = pypbc.Parameters(param_string =
+    "type a\n"
+    "q 8780710799663312522437781984754049815806883199414208211028653399266475630880222957078625179422662221423155858769582317459277713367317481324925129998224791\n"
+    "h 12016012264891146079388821366740534204802954401251311822919615131047207289359704531102844802183906537786776\n"
+    "r 730750818665451621361119245571504901405976559617\n"
+    "exp2 159\n"
+    "exp1 107\n"
+    "sign1 1\n"
+    "sign0 1\n"
+)
+pairing = pypbc.Pairing(params)
+G1 = pypbc.Element.random(pairing, pypbc.G1)
+G2 = pypbc.Element.random(pairing, pypbc.G2)
+P = 730750818665451621361119245571504901405976559617
 K = 1 # maxium exponent of 2 that divides P - 1 (the number of constraints should not exceed K, otherwise FFT cannot be applied)
 while (P - 1) % (K * 2) == 0:
     K = K * 2
@@ -12,8 +25,6 @@ for Z in range(2, P):
     if pow(Z, (P - 1) // 2, P) != 1:
         break
 T = pow(Z, (P - 1) // K, P) # primitive K-th root of unity
-G1 = G2 = 0
-multiply = add = neg = pairing = lambda *args: 0
 class Timer:
     def __init__(self, text):
         self.text = text
@@ -65,17 +76,17 @@ class Assembly:
         Zx = pow(x, I, P) - 1
         Γ = util.modinv(γ, P)
         Δ = util.modinv(δ, P)
-        α1 = multiply(G1, α)
-        β1 = multiply(G1, β)
-        δ1 = multiply(G1, δ)
-        β2 = multiply(G2, β)
-        γ2 = multiply(G2, γ)
-        δ2 = multiply(G2, δ)
-        u1U = [multiply(G1, (β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P) for m in                      self.pubs]
-        v1V = [multiply(G1, (β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P) for m in range(M) if m not in self.pubs]
-        x1I = [multiply(G1, pow(x, i, P)) for i in range(I)]
-        x2I = [multiply(G2, pow(x, i, P)) for i in range(I)]
-        y1I = [multiply(G1, pow(x, i, P) * Δ * Zx % P) for i in range(I - 1)]
+        α1 = G1 * α
+        β1 = G1 * β
+        δ1 = G1 * δ
+        β2 = G2 * β
+        γ2 = G2 * γ
+        δ2 = G2 * δ
+        u1U = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P) for m in                      self.pubs]
+        v1V = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P) for m in range(M) if m not in self.pubs]
+        x1I = [G1 * pow(x, i, P) for i in range(I)]
+        x2I = [G2 * pow(x, i, P) for i in range(I)]
+        y1I = [G1 * (pow(x, i, P) * Δ * Zx % P) for i in range(I - 1)]
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         M = self.dim_count()
@@ -111,27 +122,21 @@ class Assembly:
         cwI = util.fft([Cw * pow(S, i, P) % P for i, Cw in enumerate(CwI)], R, P) # FFT in coset
         hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
         HI = [H * pow(S, 0 - i, P) % P for i, H in enumerate(util.ifft(hI, R, P))] # IFFT in coset
-        A1 = add(α1, multiply(δ1, r))
-        for Aw, x1 in zip(AwI, x1I):
-            A1 = add(A1, multiply(x1, Aw))
-        B1 = add(β1, multiply(δ1, s))
-        for Bw, x1 in zip(BwI, x1I):
-            B1 = add(B1, multiply(x1, Bw))
-        B2 = add(β2, multiply(δ2, s))
-        for Bw, x2 in zip(BwI, x2I):
-            B2 = add(B2, multiply(x2, Bw))
-        C1 = add(add(multiply(A1, s), multiply(B1, r)), neg(multiply(δ1, r * s % P)))
-        for H, y1 in zip(HI, y1I):
-            C1 = add(C1, multiply(y1, H))
-        for v, v1 in zip(vV, v1V):
-            C1 = add(C1, multiply(v1, v))
+        A1 = α1 + δ1 * r
+        A1 = sum((x1 * Aw for x1, Aw in zip(x1I, AwI)), A1)
+        B1 = β1 + δ1 * s
+        B1 = sum((x1 * Bw for x1, Bw in zip(x1I, BwI)), B1)
+        B2 = β2 + δ2 * s
+        B2 = sum((x2 * Bw for x2, Bw in zip(x2I, BwI)), B2)
+        C1 = A1 * s + B1 * r - δ1 * (r * s % P)
+        C1 = sum((y1 * H for y1, H in zip(y1I, HI)), C1)
+        C1 = sum((v1 * v for v1, v in zip(v1V, vV)), C1)
         return A1, B2, C1, uU
     @staticmethod
     def verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
-        D1 = multiply(G1, 0)
-        for u, u1 in zip(uU, u1U):
-            D1 = add(D1, multiply(u1, u))
-        return pairing(B2, A1) == pairing(β2, α1) * pairing(γ2, D1) * pairing(δ2, C1)
+        D1 = G1 * 0
+        D1 = sum((u1 * u for u1, u in zip(u1U, uU)), D1)
+        return pairing.apply(B2, A1) == pairing.apply(β2, α1) + pairing.apply(γ2, D1) + pairing.apply(δ2, C1)
     def __bind(self, func, pubname = None):
         i = len(self.dims)
         self.dims.append(func)
