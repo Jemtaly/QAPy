@@ -65,8 +65,8 @@ class Assembly:
             for m, c in cM.items():
                 CxM[m] += c * X
         Zx = pow(x, I, P) - 1
-        Γ = util.modinv(γ, P)
-        Δ = util.modinv(δ, P)
+        Γ = pow(γ, P - 2, P)
+        Δ = pow(δ, P - 2, P)
         α1 = G1 * α
         β1 = G1 * β
         δ1 = G1 * δ
@@ -183,13 +183,13 @@ class Assembly:
         if y == 0:
             raise ZeroDivisionError
         if isinstance(x, int) and isinstance(y, int):
-            return x * util.modinv(y, P) % P
+            return x * pow(y, P - 2, P) % P
         if isinstance(y, int):
-            t = util.modinv(y, P)
+            t = pow(y, P - 2, P)
             return Var({i: m * t % P for i, m in x.items()})
         if isinstance(x, int):
             x = Var({0: x})
-        z = self.__bind(lambda getw, args: getw(x) * util.modinv(getw(y), P) % P)
+        z = self.__bind(lambda getw, args: getw(x) * pow(getw(y), P - 2, P) % P)
         self.ASSERT(z, y, x, msg = msg)
         return z
     def ENUM(self, x, KEYS, *, msg = 'enumerization error'):
