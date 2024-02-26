@@ -446,14 +446,14 @@ def shape(x):
         if len(shapes) == 1:
             outer, inner = shapes.pop()
             return (range(len(x)), *outer), inner
-        raise TypeError('inconsistent shape')
+        raise TypeError('inconsistent shape of list elements')
     if isinstance(x, dict):
         shapes = {shape(v) for v in x.values()}
         if len(shapes) == 1:
             outer, inner = shapes.pop()
             return (frozenset(x), *outer), inner
-        raise TypeError('inconsistent shape')
-    raise TypeError('unsupported type')
+        raise TypeError('inconsistent shape of dict values')
+    raise TypeError('unsupported data type')
 class Compiler(ast.NodeVisitor, Assembly):
     def __init__(self):
         ast.NodeVisitor.__init__(self)
@@ -475,7 +475,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         for stmt in node.body:
             flag, result = self.visit(stmt)
             if flag == 'continue' or flag == 'break' or flag == 'return':
-                raise SyntaxError('invalid top-level statement')
+                raise SyntaxError('unexpected ' + flag)
     def visit_Continue(self, node):
         return 'continue', None
     def visit_Break(self, node):
@@ -525,7 +525,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         elif isinstance(iter, dict):
             iter = iter.keys()
         else:
-            raise TypeError('only support iteration over range, list, and dict')
+            raise TypeError('iteration can only be performed on range, list or dict')
         for value in iter:
             self.stack[-1][node.target.id] = value
             for stmt in node.body:
@@ -562,7 +562,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             elif isinstance(iter, dict):
                 iter = iter.keys()
             else:
-                raise TypeError('only support iteration over range, list, and dict')
+                raise TypeError('iteration can only be performed on range, list or dict')
             call_stack = self.stack
             self.stack = self.stack + [{}]
             for value in iter:
@@ -587,7 +587,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             elif isinstance(iter, dict):
                 iter = iter.keys()
             else:
-                raise TypeError('only support iteration over range, list, and dict')
+                raise TypeError('iteration can only be performed on range, list or dict')
             call_stack = self.stack
             self.stack = self.stack + [{}]
             for value in iter:
@@ -624,7 +624,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             for stmt in node.body:
                 flag, result = self.visit(stmt)
                 if flag == 'break' or flag == 'continue':
-                    raise SyntaxError('invalid top-level statement')
+                    raise SyntaxError('unexpected ' + flag)
                 if flag == 'return':
                     break
             else:
@@ -647,9 +647,9 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Assign(self, node):
         def assign(target, value):
             if isinstance(target, ast.Tuple):
-                if not isinstance(value, tuple):
-                    raise TypeError('mismatched assignment')
-                for target, value in zip(target.elts, value, strict = True):
+                if not isinstance(value, tuple) or len(target.elts) != len(value):
+                    raise TypeError('mismatched number of targets and values in assignment')
+                for target, value in zip(target.elts, value):
                     assign(target, value)
                 return
             if isinstance(target, ast.Name):
@@ -670,7 +670,7 @@ class Compiler(ast.NodeVisitor, Assembly):
                 keys, *outer = outer
                 enums.append(self.ENUM(self.VAL(slice) if isbin(slice) else asval(slice), keys))
             if (tuple(outer), inner) != shape(value):
-                raise TypeError('mismatched assignment')
+                raise TypeError('inconsistent shape of target and value in indexed assignment')
             self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
         value = self.visit(node.value)
         for target in node.targets:
@@ -732,14 +732,14 @@ class Compiler(ast.NodeVisitor, Assembly):
             return self.ROTL(asbin(left), asint(right))
         if isinstance(node.op, ast.RShift):
             return self.ROTR(asbin(left), asint(right))
-        raise NotImplementedError('unsupported binary operation')
+        raise SyntaxError('unsupported binary operation')
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)
         if isinstance(node.op, ast.Invert):
             return self.BITNOT(asbin(operand))
         if isinstance(node.op, ast.Not):
             return self.NOT(asval(operand))
-        raise NotImplementedError('unsupported unary operation')
+        raise SyntaxError('unsupported unary operation')
     def visit_BoolOp(self, node):
         if isinstance(node.op, ast.And):
             result = 1
@@ -751,7 +751,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             for value in node.values:
                 result = self.OR(result, asval(self.visit(value)))
             return result
-        raise NotImplementedError('unsupported boolean operation')
+        raise SyntaxError('unsupported boolean operation')
     def visit_Compare(self, node):
         result = 1
         left = self.visit(node.left)
@@ -769,17 +769,17 @@ class Compiler(ast.NodeVisitor, Assembly):
             elif isinstance(op, ast.GtE):
                 result = self.AND(result, self.BINGE(asbin(left), asbin(right)))
             else:
-                raise NotImplementedError('unsupported comparison')
+                raise SyntaxError('unsupported comparison')
             left = right
         return result
     def visit_IfExp(self, node):
         left = self.visit(node.body)
         right = self.visit(node.orelse)
         if shape(left) != shape(right):
-            raise TypeError('mismatched shape')
+            raise TypeError('inconsistent shape of left and right values in conditional expression')
         return self.IF(asval(self.visit(node.test)), left, right)
     def generic_visit(self, node):
-        raise NotImplementedError('unsupported syntax')
+        raise SyntaxError('unsupported syntax')
 if __name__ == '__main__':
     with Timer('Compiling program...'):
         asm = Compiler()
