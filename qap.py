@@ -38,16 +38,16 @@ class Var:
         return self.args.get(key, default)
 class Assembly:
     def __init__(self):
-        self.cons = [] # constraints
-        self.wits = [lambda getw, args: 1] # witness functions
-        self.pubs = {0: 'unit'}
-    def con_count(self):
-        return len(self.cons)
-    def wit_count(self):
-        return len(self.wits)
+        self.gates = []
+        self.wires = [lambda getw, args: 1]
+        self.stmts = {0: 'unit'}
+    def gate_count(self):
+        return len(self.gates)
+    def wire_count(self):
+        return len(self.wires)
     def setup(self, α, β, γ, δ, x):
-        M = self.wit_count()
-        N = self.con_count()
+        M = self.wire_count()
+        N = self.gate_count()
         I = 1
         while I < N:
             I = I * 2
@@ -57,7 +57,7 @@ class Assembly:
         AxM = [0 for _ in range(M)]
         BxM = [0 for _ in range(M)]
         CxM = [0 for _ in range(M)]
-        for X, (aM, bM, cM, msg) in zip(XI, self.cons):
+        for X, (aM, bM, cM, msg) in zip(XI, self.gates):
             for m, a in aM.items():
                 AxM[m] += a * X
             for m, b in bM.items():
@@ -73,15 +73,15 @@ class Assembly:
         β2 = G2 * β
         γ2 = G2 * γ
         δ2 = G2 * δ
-        u1U = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P) for m in                      self.pubs]
-        v1V = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P) for m in range(M) if m not in self.pubs]
+        u1U = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P) for m in                      self.stmts]
+        v1V = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P) for m in range(M) if m not in self.stmts]
         x1I = [G1 * pow(x, i, P) for i in range(I)]
         x2I = [G2 * pow(x, i, P) for i in range(I)]
         y1I = [G1 * (pow(x, i, P) * Δ * Zx % P) for i in range(I - 1)]
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
-        M = self.wit_count()
-        N = self.con_count()
+        M = self.wire_count()
+        N = self.gate_count()
         I = 1
         while I < N:
             I = I * 2
@@ -90,14 +90,14 @@ class Assembly:
         S = pow(T, K // J, P) # primitive J-th root of unity
         wM = []
         getw = lambda xM: sum(wM[m] * x for m, x in xM.items()) % P
-        for func in self.wits:
+        for func in self.wires:
             wM.append(func(getw, args))
-        uU = [wM[m] for m in                      self.pubs]
-        vV = [wM[m] for m in range(M) if m not in self.pubs]
+        uU = [wM[m] for m in                      self.stmts]
+        vV = [wM[m] for m in range(M) if m not in self.stmts]
         awN = []
         bwN = []
         cwN = []
-        for aM, bM, cM, msg in self.cons:
+        for aM, bM, cM, msg in self.gates:
             aw = getw(aM)
             bw = getw(bM)
             cw = getw(cM)
@@ -128,18 +128,12 @@ class Assembly:
         D1 = G1 * 0
         D1 = sum((u1 * u for u1, u in zip(u1U, uU)), D1)
         return pairing.apply(B2, A1) == pairing.apply(β2, α1) + pairing.apply(γ2, D1) + pairing.apply(δ2, C1)
-    def __bind(self, func, pubname = None):
-        i = len(self.wits)
-        self.wits.append(func)
-        if pubname is not None:
-            self.pubs[i] = pubname
+    def MKWIRE(self, func, name = None):
+        i = len(self.wires)
+        self.wires.append(func)
+        if name is not None:
+            self.stmts[i] = name
         return Var({i: 1})
-    def NEWVAR(self, name, public = False):
-        return self.__bind(lambda getw, args: args[name], name if public else None)
-    def REVEAL(self, name, x):
-        if isinstance(x, int):
-            x = Var({0: x})
-        return self.__bind(lambda getw, args: getw(x), name if name else 'unnamed')
     def ASSERT(self, x, y, z, *, msg = 'assertion error'):
         if isinstance(x, int) and isinstance(y, int) and isinstance(z, int):
             assert x * y % P == z, msg
@@ -150,7 +144,7 @@ class Assembly:
             y = Var({0: y})
         if isinstance(z, int):
             z = Var({0: z})
-        self.cons.append((x, y, z, msg))
+        self.gates.append((x, y, z, msg))
     def ADD(self, x, y):
         if isinstance(y, int):
             y = Var({0: y})
@@ -174,7 +168,7 @@ class Assembly:
             return Var({i: m * y % P for i, m in x.items()})
         if isinstance(x, int):
             return Var({i: m * x % P for i, m in y.items()})
-        z = self.__bind(lambda getw, args: getw(x) * getw(y) % P)
+        z = self.MKWIRE(lambda getw, args: getw(x) * getw(y) % P)
         self.ASSERT(x, y, z, msg = msg)
         return z
     def DIV(self, x, y, *, msg = 'division error'):
@@ -185,11 +179,10 @@ class Assembly:
         if isinstance(x, int) and isinstance(y, int):
             return x * pow(y, P - 2, P) % P
         if isinstance(y, int):
-            t = pow(y, P - 2, P)
-            return Var({i: m * t % P for i, m in x.items()})
+            return Var({i: m * pow(y, P - 2, P) % P for i, m in x.items()})
         if isinstance(x, int):
             x = Var({0: x})
-        z = self.__bind(lambda getw, args: getw(x) * pow(getw(y), P - 2, P) % P)
+        z = self.MKWIRE(lambda getw, args: getw(x) * pow(getw(y), P - 2, P) % P)
         self.ASSERT(z, y, x, msg = msg)
         return z
     def ENUM(self, x, KEYS, *, msg = 'enumerization error'):
@@ -197,8 +190,8 @@ class Assembly:
             xKey = {K: 1 - pow(x - K, P - 1, P) for K in KEYS}
             assert sum(xKey.values()) == 1, msg
             return xKey
+        bind = lambda K: self.MKWIRE(lambda getw, args: 1 - pow(getw(x) - K, P - 1, P))
         xKey = {K: 0 for K in KEYS}
-        bind = lambda K: self.__bind(lambda getw, args: 1 - pow(getw(x) - K, P - 1, P))
         for K in KEYS:
             b = xKey[K] = bind(K)
             self.ASSERT_ISBOOL(b)
@@ -212,7 +205,7 @@ class Assembly:
             xBin = [x % P >> I & 1 for I in range(XLEN)]
             assert 0 <= x % P < 2 ** XLEN, msg
             return xBin
-        bind = lambda I: self.__bind(lambda getw, args: getw(x) >> I & 1)
+        bind = lambda I: self.MKWIRE(lambda getw, args: getw(x) >> I & 1)
         xBin = [0 for _ in range(XLEN)]
         for I in range(XLEN):
             b = xBin[I] = bind(I)
@@ -223,8 +216,8 @@ class Assembly:
     def NEZ(self, x, *, msg = 'booleanization error'):
         if isinstance(x, int):
             return pow(x, P - 1, P)
-        v = self.__bind(lambda getw, args: pow(getw(x), P - 2, P))
-        o = self.__bind(lambda getw, args: pow(getw(x), P - 1, P))
+        v = self.MKWIRE(lambda getw, args: pow(getw(x), P - 2, P))
+        o = self.MKWIRE(lambda getw, args: pow(getw(x), P - 1, P))
         self.ASSERT(o, x, x, msg = msg)
         self.ASSERT(x, v, o, msg = msg)
         return o
@@ -363,8 +356,8 @@ class Assembly:
             x = Var({0: x})
         if isinstance(y, int):
             y = Var({0: y})
-        q = self.__bind(lambda getw, args: getw(x) // getw(y))
-        r = self.__bind(lambda getw, args: getw(x) % getw(y))
+        q = self.MKWIRE(lambda getw, args: getw(x) // getw(y))
+        r = self.MKWIRE(lambda getw, args: getw(x) % getw(y))
         self.ASSERT(q, y, self.SUB(x, r), msg = msg) # assert y * q == x - r
         qBin = self.ASSERT_GE(q, 0, QLEN, msg = msg)
         rBin = self.ASSERT_GE(r, 0, RLEN, msg = msg)
@@ -417,6 +410,14 @@ class Assembly:
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 1), BLEN, msg = msg)
+    def PARAM(self, name, public = False):
+        return self.MKWIRE(lambda getw, args: args[name], name if public else None)
+    def REVEAL(self, x, name = None, *, msg = 'reveal error'):
+        if isinstance(x, int):
+            x = Var({0: x})
+        r = self.MKWIRE(lambda getw, args: getw(x), name)
+        self.ASSERT_EQ(x, r, msg = msg)
+        return r
 def isint(x):
     return isinstance(x, int)
 def isgal(x):
@@ -466,9 +467,9 @@ class Compiler(ast.NodeVisitor, Assembly):
             'b32': lambda x: (x + [0] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
             'bin': lambda x, n: (x + [0] * asint(n))[:n] if isbin(x) else self.BINARY(asgal(x), asint(n)),
-            'private': lambda fmt, *args: self.NEWVAR(fmt.format(*map(asint, args)) if args else fmt),
-            'public': lambda fmt, *args: self.NEWVAR(fmt.format(*map(asint, args)) if args else fmt, public = True),
-            'reveal': lambda x, fmt, *args: self.REVEAL(fmt.format(*map(asint, args)) if args else fmt, self.GALOIS(x) if isbin(x) else asgal(x)),
+            'private': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt),
+            'public': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt, public = True),
+            'reveal': lambda x, fmt, *args: self.REVEAL(self.GALOIS(x) if isbin(x) else asgal(x), fmt.format(*map(asint, args)) if args else fmt),
         }]
     def visit_Module(self, node):
         for stmt in node.body:
@@ -848,8 +849,8 @@ if __name__ == '__main__':
             "for i in range(8):\n"
             "    reveal(V[i], 'V[{:#04x}]', i)\n"
         ))
-    print('Number of constraints:', asm.con_count())
-    print('Number of witnesses:', asm.wit_count())
+    print('Number of gates:', asm.gate_count())
+    print('Number of wires:', asm.wire_count())
     with Timer('Setting up QAP...'):
         α = random.randrange(1, P)
         β = random.randrange(1, P)
@@ -866,6 +867,6 @@ if __name__ == '__main__':
         passed = asm.verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
     if passed:
         print('Verification passed!')
-        print('Public witness:', '{{{}}}'.format(', '.join('{} = {:#010x}'.format(k, u) for k, u in zip(asm.pubs.values(), uU))))
+        print('Public witness:', '{{{}}}'.format(', '.join('{} = {:#010x}'.format(k, u) for k, u in zip(asm.stmts.values(), uU))))
     else:
         print('Verification failed!')
