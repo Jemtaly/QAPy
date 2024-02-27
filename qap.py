@@ -246,8 +246,7 @@ class Assembly:
             k = self.IF(b, x, 1)
             r = self.MUL(r, k)
         return r
-    def SUM(self, List):
-        r = 0
+    def SUM(self, List, r = 0):
         for i in List:
             r = self.ADD(r, i)
         return r
@@ -366,10 +365,10 @@ class Assembly:
             kBin = self.IF(b, xBin, self.BINARY(1, BLEN))
             rBin = self.BINMUL(rBin, kBin)[0]
         return rBin
-    def BINSUM(self, List):
+    def BINSUM(self, List, c = 0): # c < len(List)
         # assert len(set(map(len, List))) == 1
         BLEN = max(map(len, List))
-        return self.BINARY(self.SUM(map(self.GALOIS, List)), BLEN + (len(List) - 1).bit_length())[:BLEN]
+        return self.BINARY(self.SUM(map(self.GALOIS, List), c), BLEN + (len(List) - 1).bit_length())[:BLEN]
     def BINGE(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
@@ -452,7 +451,6 @@ class Compiler(ast.NodeVisitor, Assembly):
         Assembly.__init__(self)
         self.stack = [{
             'range': lambda *args: range(*map(asint, args)),
-            'sum': lambda *List: self.BINSUM(List) if len(List) > 0 and all(map(isbin, List)) else self.SUM(map(asgal, List)),
             'log': lambda fmt, *args: print(fmt.format(*map(asint, args))),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
             'b8':  lambda x: (x + [0] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
@@ -694,6 +692,20 @@ class Compiler(ast.NodeVisitor, Assembly):
         return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
     def visit_Call(self, node):
         return self.visit(node.func)(*map(self.visit, node.args))
+    def visit_Set(self, node):
+        # this syntax is used for summing binary values
+        # use * to represent negation (except for the first element)
+        # e.g. {a, *b, c, *d, e} represents a - b + c - d + e
+        elt, *elts = node.elts
+        negs = 0
+        args = [asbin(self.visit(elt))]
+        for elt in elts:
+            if isinstance(elt, ast.Starred):
+                negs += 1
+                args.append(self.BITNOT(asbin(self.visit(elt.value))))
+            else:
+                args.append(asbin(self.visit(elt)))
+        return self.BINSUM(args, c = negs)
     def visit_Constant(self, node):
         if isinstance(node.value, int):
             return node.value % P
@@ -736,6 +748,10 @@ class Compiler(ast.NodeVisitor, Assembly):
             return self.BITNOT(asbin(operand))
         if isinstance(node.op, ast.Not):
             return self.NOT(asgal(operand))
+        if isinstance(node.op, ast.UAdd):
+            return self.ADD(0, asgal(operand))
+        if isinstance(node.op, ast.USub):
+            return self.SUB(0, asgal(operand))
         raise SyntaxError('unsupported unary operation')
     def visit_BoolOp(self, node):
         if isinstance(node.op, ast.And):
@@ -790,12 +806,12 @@ if __name__ == '__main__':
     with Timer('Compiling program...'):
         asm = Compiler()
         asm.visit(ast.parse(
-            "P0 = lambda x: x ^ (x << 9) ^ (x << 17)\n"
-            "P1 = lambda x: x ^ (x << 15) ^ (x << 23)\n"
+            "P0 = lambda x: x ^ x << 9 ^ x << 17\n"
+            "P1 = lambda x: x ^ x << 15 ^ x << 23\n"
             "F0 = lambda x, y, z: x ^ y ^ z\n"
-            "F1 = lambda x, y, z: (x & y) | (z & (x | y))\n"
+            "F1 = lambda x, y, z: x & y | z & (x | y)\n"
             "G0 = lambda x, y, z: x ^ y ^ z\n"
-            "G1 = lambda x, y, z: (x & y) | (z & ~x)\n"
+            "G1 = lambda x, y, z: x & y | z & ~x\n"
             "T0 = b32(0x79cc4519)\n"
             "T1 = b32(0x7a879d8a)\n"
             "def compress(V, I):\n"
@@ -803,7 +819,7 @@ if __name__ == '__main__':
             "    for j in range(0, 16):\n"
             "        W[j] = I[j]\n"
             "    for j in range(16, 68):\n"
-            "        W[j] = P1(W[j - 16] ^ W[j - 9] ^ (W[j - 3] << 15)) ^ (W[j - 13] << 7) ^ W[j - 6]\n"
+            "        W[j] = P1(W[j - 16] ^ W[j - 9] ^ W[j - 3] << 15) ^ W[j - 13] << 7 ^ W[j - 6]\n"
             "    A = V[0]\n"
             "    B = V[1]\n"
             "    C = V[2]\n"
@@ -814,15 +830,15 @@ if __name__ == '__main__':
             "    H = V[7]\n"
             "    for j in range(0, 64):\n"
             "        if b8(j) < b8(16):\n"
-            "            SS1 = sum(A << 12, E, T0 << j) << 7\n"
-            "            SS2 = SS1 ^ (A << 12)\n"
-            "            TT1 = sum(F0(A, B, C), D, SS2, W[j] ^ W[j + 4])\n"
-            "            TT2 = sum(G0(E, F, G), H, SS1, W[j])\n"
+            "            SS1 = {A << 12, E, T0 << j} << 7\n"
+            "            SS2 = SS1 ^ A << 12\n"
+            "            TT1 = {F0(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
+            "            TT2 = {G0(E, F, G), H, SS1, W[j]}\n"
             "        else:\n"
-            "            SS1 = sum(A << 12, E, T1 << j) << 7\n"
-            "            SS2 = SS1 ^ (A << 12)\n"
-            "            TT1 = sum(F1(A, B, C), D, SS2, W[j] ^ W[j + 4])\n"
-            "            TT2 = sum(G1(E, F, G), H, SS1, W[j])\n"
+            "            SS1 = {A << 12, E, T1 << j} << 7\n"
+            "            SS2 = SS1 ^ A << 12\n"
+            "            TT1 = {F1(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
+            "            TT2 = {G1(E, F, G), H, SS1, W[j]}\n"
             "        A, B, C, D, E, F, G, H = TT1, A, B << 9, C, P0(TT2), E, F << 19, G\n"
             "    V[0] = A ^ V[0]\n"
             "    V[1] = B ^ V[1]\n"
