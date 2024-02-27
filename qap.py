@@ -246,12 +246,6 @@ class Assembly:
             k = self.IF(b, x, 1)
             r = self.MUL(r, k)
         return r
-    def EXP(self, x, NEXP):
-        NBIN = []
-        while NEXP > 0:
-            NBIN.append(NEXP & 1)
-            NEXP = NEXP >> 1
-        return self.POW(x, NBIN if NBIN else [0])
     def SUM(self, List):
         r = 0
         for i in List:
@@ -372,12 +366,10 @@ class Assembly:
             kBin = self.IF(b, xBin, self.BINARY(1, BLEN))
             rBin = self.BINMUL(rBin, kBin)[0]
         return rBin
-    def BINEXP(self, xBin, NEXP):
-        NBIN = []
-        while NEXP > 0:
-            NBIN.append(NEXP & 1)
-            NEXP = NEXP >> 1
-        return self.BINPOW(xBin, NBIN if NBIN else [0])
+    def BINSUM(self, List):
+        # assert len(set(map(len, List))) == 1
+        BLEN = max(map(len, List))
+        return self.BINARY(self.SUM(map(self.GALOIS, List)), BLEN + (len(List) - 1).bit_length())[:BLEN]
     def BINGE(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
@@ -460,6 +452,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         Assembly.__init__(self)
         self.stack = [{
             'range': lambda *args: range(*map(asint, args)),
+            'sum': lambda *List: self.BINSUM(List) if len(List) > 0 and all(map(isbin, List)) else self.SUM(map(asgal, List)),
             'log': lambda fmt, *args: print(fmt.format(*map(asint, args))),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
             'b8':  lambda x: (x + [0] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
@@ -721,7 +714,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         if isinstance(node.op, ast.Div):
             return self.DIV(asgal(left), asgal(right))
         if isinstance(node.op, ast.Pow):
-            return (self.POW(left, right) if isbin(left) else self.BINPOW(asgal(left), right)) if isbin(right) else (self.EXP(left, asint(right)) if isbin(left) else self.POW(asgal(left), asint(right)))
+            return self.POW(left, asbin(right)) if isbin(left) else self.BINPOW(asgal(left), asbin(right))
         if isinstance(node.op, ast.FloorDiv):
             return self.BINDIVMOD(asbin(left), asbin(right))[0]
         if isinstance(node.op, ast.Mod):
@@ -821,15 +814,15 @@ if __name__ == '__main__':
             "    H = V[7]\n"
             "    for j in range(0, 64):\n"
             "        if b8(j) < b8(16):\n"
-            "            SS1 = ((A << 12) + E + (T0 << j)) << 7\n"
+            "            SS1 = sum(A << 12, E, T0 << j) << 7\n"
             "            SS2 = SS1 ^ (A << 12)\n"
-            "            TT1 = F0(A, B, C) + D + SS2 + (W[j] ^ W[j + 4])\n"
-            "            TT2 = G0(E, F, G) + H + SS1 + W[j]\n"
+            "            TT1 = sum(F0(A, B, C), D, SS2, W[j] ^ W[j + 4])\n"
+            "            TT2 = sum(G0(E, F, G), H, SS1, W[j])\n"
             "        else:\n"
-            "            SS1 = ((A << 12) + E + (T1 << j)) << 7\n"
+            "            SS1 = sum(A << 12, E, T1 << j) << 7\n"
             "            SS2 = SS1 ^ (A << 12)\n"
-            "            TT1 = F1(A, B, C) + D + SS2 + (W[j] ^ W[j + 4])\n"
-            "            TT2 = G1(E, F, G) + H + SS1 + W[j]\n"
+            "            TT1 = sum(F1(A, B, C), D, SS2, W[j] ^ W[j + 4])\n"
+            "            TT2 = sum(G1(E, F, G), H, SS1, W[j])\n"
             "        A, B, C, D, E, F, G, H = TT1, A, B << 9, C, P0(TT2), E, F << 19, G\n"
             "    V[0] = A ^ V[0]\n"
             "    V[1] = B ^ V[1]\n"
