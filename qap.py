@@ -4,7 +4,9 @@ import util
 import ast
 import random
 import pypbc
-params = pypbc.Parameters(param_string =
+import multiprocessing
+# elliptic curve parameters
+stored_params = (
     "type a\n"
     "q 8780710799663312522437781984754049815806883199414208211028653399266475630880222957078625179422662221423155858769582317459277713367317481324925129998224791\n"
     "h 12016012264891146079388821366740534204802954401251311822919615131047207289359704531102844802183906537786776\n"
@@ -14,17 +16,43 @@ params = pypbc.Parameters(param_string =
     "sign1 1\n"
     "sign0 1\n"
 )
+params = pypbc.Parameters(param_string = stored_params)
 pairing = pypbc.Pairing(params)
 G1 = pypbc.Element.random(pairing, pypbc.G1)
 G2 = pypbc.Element.random(pairing, pypbc.G2)
+# parallel scalar multiplication and dot product
+def scalar_mult_worker(group, g, Z):
+    g = pypbc.Element.from_bytes(pairing, group, g)
+    return [(g * z).to_bytes() for z in Z]
+def scalar_mult_parallel(group, g, Z, k = 12):
+    g = g.to_bytes()
+    n = len(Z)
+    pool = multiprocessing.Pool()
+    Rs = pool.starmap(scalar_mult_worker, ((group, g, Z[l:r]) for l, r in ((i * n // k, (i + 1) * n // k) for i in range(k))))
+    pool.close()
+    pool.join()
+    return [pypbc.Element.from_bytes(pairing, group, r) for R in Rs for r in R]
+def dot_prod_worker(group, G, Z):
+    G = [pypbc.Element.from_bytes(pairing, group, g) for g in G]
+    return sum((g * z for g, z in zip(G, Z)), pypbc.Element.zero(pairing, group)).to_bytes()
+def dot_prod_parallel(group, G, Z, c, k = 12):
+    G = [G.to_bytes() for G in G]
+    n = len(G)
+    pool = multiprocessing.Pool()
+    rs = pool.starmap(dot_prod_worker, ((group, G[l:r], Z[l:r]) for l, r in ((i * n // k, (i + 1) * n // k) for i in range(k))))
+    pool.close()
+    pool.join()
+    return sum((pypbc.Element.from_bytes(pairing, group, r) for r in rs), c)
+# finite field parameters
 P = 730750818665451621361119245571504901405976559617
-K = 1 # maxium exponent of 2 that divides P - 1 (the number of constraints should not exceed K, otherwise FFT cannot be applied)
+K = 1 # K is the max exponent of 2 that divides P - 1, the number of gates should not exceed K, otherwise the FFT will fail
 while (P - 1) % (K * 2) == 0:
     K = K * 2
 for Z in range(2, P):
     if pow(Z, (P - 1) // 2, P) != 1:
         break
-T = pow(Z, (P - 1) // K, P) # primitive K-th root of unity
+T = pow(Z, (P - 1) // K, P) # T is a primitive K-th root of unity, which is used to perform FFT
+# QAP compiler
 class Var:
     def __init__(self, args):
         self.args = args
@@ -73,11 +101,11 @@ class Assembly:
         β2 = G2 * β
         γ2 = G2 * γ
         δ2 = G2 * δ
-        u1U = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P) for m in                      self.stmts]
-        v1V = [G1 * ((β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P) for m in range(M) if m not in self.stmts]
-        x1I = [G1 * pow(x, i, P) for i in range(I)]
-        x2I = [G2 * pow(x, i, P) for i in range(I)]
-        y1I = [G1 * (pow(x, i, P) * Δ * Zx % P) for i in range(I - 1)]
+        u1U = scalar_mult_parallel(pypbc.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P for m in                      self.stmts])
+        v1V = scalar_mult_parallel(pypbc.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P for m in range(M) if m not in self.stmts])
+        x1I = scalar_mult_parallel(pypbc.G1, G1, [pow(x, i, P) for i in range(I)])
+        x2I = scalar_mult_parallel(pypbc.G2, G2, [pow(x, i, P) for i in range(I)])
+        y1I = scalar_mult_parallel(pypbc.G1, G1, [pow(x, i, P) * Δ * Zx % P for i in range(I - 1)])
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         M = self.wire_count()
@@ -114,19 +142,19 @@ class Assembly:
         hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
         HI = [H * pow(S, 0 - i, P) % P for i, H in enumerate(util.ifft(hI, R, P))] # IFFT in coset
         A1 = α1 + δ1 * r
-        A1 = sum((x1 * Aw for x1, Aw in zip(x1I, AwI)), A1)
+        A1 = dot_prod_parallel(pypbc.G1, x1I, AwI, A1)
         B1 = β1 + δ1 * s
-        B1 = sum((x1 * Bw for x1, Bw in zip(x1I, BwI)), B1)
+        B1 = dot_prod_parallel(pypbc.G1, x1I, BwI, B1)
         B2 = β2 + δ2 * s
-        B2 = sum((x2 * Bw for x2, Bw in zip(x2I, BwI)), B2)
+        B2 = dot_prod_parallel(pypbc.G2, x2I, BwI, B2)
         C1 = A1 * s + B1 * r - δ1 * (r * s % P)
-        C1 = sum((y1 * H for y1, H in zip(y1I, HI)), C1)
-        C1 = sum((v1 * v for v1, v in zip(v1V, vV)), C1)
+        C1 = dot_prod_parallel(pypbc.G1, y1I, HI, C1)
+        C1 = dot_prod_parallel(pypbc.G1, v1V, vV, C1)
         return A1, B2, C1, uU
     @staticmethod
     def verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
         D1 = G1 * 0
-        D1 = sum((u1 * u for u1, u in zip(u1U, uU)), D1)
+        D1 = dot_prod_parallel(pypbc.G1, u1U, uU, D1)
         return pairing.apply(B2, A1) == pairing.apply(β2, α1) + pairing.apply(γ2, D1) + pairing.apply(δ2, C1)
     def MKWIRE(self, func, name = None):
         i = len(self.wires)
