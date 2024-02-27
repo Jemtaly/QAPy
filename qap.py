@@ -21,28 +21,14 @@ pairing = pypbc.Pairing(params)
 G1 = pypbc.Element.random(pairing, pypbc.G1)
 G2 = pypbc.Element.random(pairing, pypbc.G2)
 # parallel scalar multiplication and dot product
-def scalar_mult_worker(group, g, Z):
-    g = pypbc.Element.from_bytes(pairing, group, g)
-    return [(g * z).to_bytes() for z in Z]
-def scalar_mult_parallel(group, g, Z, k = 12):
-    g = g.to_bytes()
-    n = len(Z)
-    pool = multiprocessing.Pool()
-    Rs = pool.starmap(scalar_mult_worker, ((group, g, Z[l:r]) for l, r in ((i * n // k, (i + 1) * n // k) for i in range(k))))
-    pool.close()
-    pool.join()
-    return [pypbc.Element.from_bytes(pairing, group, r) for R in Rs for r in R]
-def dot_prod_worker(group, G, Z):
-    G = [pypbc.Element.from_bytes(pairing, group, g) for g in G]
-    return sum((g * z for g, z in zip(G, Z)), pypbc.Element.zero(pairing, group)).to_bytes()
-def dot_prod_parallel(group, G, Z, c, k = 12):
-    G = [G.to_bytes() for G in G]
-    n = len(G)
-    pool = multiprocessing.Pool()
-    rs = pool.starmap(dot_prod_worker, ((group, G[l:r], Z[l:r]) for l, r in ((i * n // k, (i + 1) * n // k) for i in range(k))))
-    pool.close()
-    pool.join()
-    return sum((pypbc.Element.from_bytes(pairing, group, r) for r in rs), c)
+def worker(group, b, z):
+    return (pypbc.Element.from_bytes(pairing, group, b) * z).to_bytes()
+def scalar_mult_parallel(group, g, Z):
+    with multiprocessing.Pool() as pool:
+        return [pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for z in Z))]
+def dot_prod_parallel(group, G, Z, c):
+    with multiprocessing.Pool() as pool:
+        return sum((pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for g, z in zip(G, Z)))), c)
 # finite field parameters
 P = 730750818665451621361119245571504901405976559617
 K = 1 # K is the max exponent of 2 that divides P - 1, the number of gates should not exceed K, otherwise the FFT will fail
