@@ -215,6 +215,8 @@ class Assembly:
         self.ASSERT_EQ(1, e, msg = msg)
         return xKey
     def BINARY(self, x, XLEN, *, msg = 'binarization error'):
+        if not 0 <= XLEN < P.bit_length():
+            raise ValueError('invalid bit length')
         if isinstance(x, int):
             xBin = [x % P >> I & 1 for I in range(XLEN)]
             assert 0 <= x % P < 2 ** XLEN, msg
@@ -423,15 +425,13 @@ class Assembly:
         r = self.MKWIRE(lambda getw, args: getw(x), name)
         self.ASSERT_EQ(x, r, msg = msg)
         return r
-def isint(x):
-    return isinstance(x, int)
 def isgal(x):
     return isinstance(x, int | Var)
 def isbin(x):
     return isinstance(x, list) and all(isinstance(b, int | Var) for b in x)
 def asint(x):
     if isinstance(x, int):
-        return x
+        return (x + (P - 1) // 2) % P - (P - 1) // 2
     raise TypeError('expected a constant value')
 def asgal(x):
     if isinstance(x, int | Var):
@@ -788,13 +788,13 @@ class Compiler(ast.NodeVisitor, Assembly):
             elif isinstance(op, ast.NotEq):
                 result = self.AND(result, self.NEZ(self.SUB(self.GALOIS(left) if isbin(left) else asgal(left), self.GALOIS(right) if isbin(right) else asgal(right))))
             elif isinstance(op, ast.Lt):
-                result = self.AND(result, self.BINLT(asbin(left), asbin(right)))
+                result = self.AND(result, self.BINLT(left, right) if isbin(left) and isbin(right) else asint(left) < asint(right))
             elif isinstance(op, ast.LtE):
-                result = self.AND(result, self.BINLE(asbin(left), asbin(right)))
+                result = self.AND(result, self.BINLE(left, right) if isbin(left) and isbin(right) else asint(left) <= asint(right))
             elif isinstance(op, ast.Gt):
-                result = self.AND(result, self.BINGT(asbin(left), asbin(right)))
+                result = self.AND(result, self.BINGT(left, right) if isbin(left) and isbin(right) else asint(left) > asint(right))
             elif isinstance(op, ast.GtE):
-                result = self.AND(result, self.BINGE(asbin(left), asbin(right)))
+                result = self.AND(result, self.BINGE(left, right) if isbin(left) and isbin(right) else asint(left) >= asint(right))
             else:
                 raise SyntaxError('unsupported comparison')
             left = right
@@ -843,7 +843,7 @@ if __name__ == '__main__':
             "    G = V[6]\n"
             "    H = V[7]\n"
             "    for j in range(0, 64):\n"
-            "        if b8(j) < b8(16):\n"
+            "        if j < 16:\n"
             "            SS1 = {A << 12, E, T0 << j} << 7\n"
             "            SS2 = SS1 ^ A << 12\n"
             "            TT1 = {F0(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
