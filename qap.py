@@ -475,25 +475,25 @@ class Assembly:
         return r
 # check the type of a value
 def isgal(x):
-    return isinstance(x, int | Var)
+    return isinstance(x, (int, Var))
 def isbin(x):
-    return isinstance(x, list) and all(isinstance(b, int | Var) for b in x)
+    return isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x)
 # assert the type of a value
 def asint(x):
     if isinstance(x, int):
         return (x + (P - 1) // 2) % P - (P - 1) // 2
     raise TypeError('expected a constant value')
 def asgal(x):
-    if isinstance(x, int | Var):
+    if isinstance(x, (int, Var)):
         return x
     raise TypeError('expected a value')
 def asbin(x):
-    if isinstance(x, list) and all(isinstance(b, int | Var) for b in x):
+    if isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x):
         return x
     raise TypeError('expected a binary')
 # get the shape of a value (binary list will be treated as a list of integers)
 def shape(x):
-    if isinstance(x, int | Var):
+    if isinstance(x, (int, Var)):
         return (), None
     if isinstance(x, tuple):
         return (), tuple(shape(v) for v in x)
@@ -860,6 +860,9 @@ class Compiler(ast.NodeVisitor, Assembly):
         return self.IF(asgal(self.visit(node.test)), left, right)
     def generic_visit(self, node):
         raise SyntaxError('unsupported syntax')
+    def visit_Index(self, node):
+        # deprecated since Python 3.9
+        return self.visit(node.value)
 class Timer:
     # This is used to measure the time of a block of code.
     def __init__(self, text):
