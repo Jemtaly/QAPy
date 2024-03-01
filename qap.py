@@ -5,7 +5,7 @@ import ast
 import random
 import pypbc
 import multiprocessing
-# elliptic curve parameters
+# elliptic curve parameters for the SS512 curve, which is used to construct the bilinear pairing
 stored_params = (
     "type a\n"
     "q 8780710799663312522437781984754049815806883199414208211028653399266475630880222957078625179422662221423155858769582317459277713367317481324925129998224791\n"
@@ -20,7 +20,7 @@ params = pypbc.Parameters(param_string = stored_params)
 pairing = pypbc.Pairing(params)
 G1 = pypbc.Element.random(pairing, pypbc.G1)
 G2 = pypbc.Element.random(pairing, pypbc.G2)
-# parallel scalar multiplication and dot product
+# scalar multiplication and dot product optimized for parallel execution
 def worker(group, b, z):
     return (pypbc.Element.from_bytes(pairing, group, b) * z).to_bytes()
 def scalar_mult_parallel(group, g, Z):
@@ -29,17 +29,22 @@ def scalar_mult_parallel(group, g, Z):
 def dot_prod_parallel(group, G, Z, c):
     with multiprocessing.Pool() as pool:
         return sum((pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for g, z in zip(G, Z)))), c)
-# finite field parameters
+# the order of the SS512 curve
 P = 730750818665451621361119245571504901405976559617
-K = 1 # K is the max exponent of 2 that divides P - 1, the number of gates should not exceed K, otherwise the FFT will fail
+# find the largest K such that P - 1 is divisible by 2 ** K, and Z is a primitive root of unity, they are used to perform FFT
+K = 1
 while (P - 1) % (K * 2) == 0:
     K = K * 2
 for Z in range(2, P):
     if pow(Z, (P - 1) // 2, P) != 1:
         break
-T = pow(Z, (P - 1) // K, P) # T is a primitive K-th root of unity, which is used to perform FFT
-# QAP compiler
+T = pow(Z, (P - 1) // K, P)
 class Var:
+    # All variables in a program are linear combinations of the variables in its witness vector, so they
+    # can be represented by a dictionary that maps the indices of the variables in the witness vector to
+    # their coefficients, for example, x = w0 + 5 * w2 + 7 * w3 can be represented as {0: 1, 2: 5, 3: 7},
+    # note that the variables with coefficient 0 are always omitted.
+    # Constants are represented by the integer itself.
     def __init__(self, args):
         self.args = args
     def items(self):
@@ -51,21 +56,26 @@ class Var:
     def get(self, key, default):
         return self.args.get(key, default)
 class Assembly:
+    # The Assembly class is used to construct the arithmetic circuits, it provides a set of methods to
+    # create and manipulate the variables, and to perform arithmetic operations on them. The arithmetic
+    # operations are represented as the constraints in the circuit. Besides, the Assembly class also
+    # provides the setup, prove, and verify methods of the Groth16 zk-SNARK.
     def __init__(self):
-        self.gates = []
-        self.wires = [lambda getw, args: 1]
-        self.stmts = {0: 'unit'}
+        self.gates = [] # the constraints in the circuit
+        self.wires = [lambda getw, args: 1] # the functions that represent the variables, used to generate the witness vector
+        self.stmts = {0: 'unit'} # the public variables in the witness, keys are the indices of the variables in the witness vector
     def gate_count(self):
         return len(self.gates)
     def wire_count(self):
         return len(self.wires)
+    # Groth16 zk-SNARK setup, prove, and verify methods
     def setup(self, α, β, γ, δ, x):
         M = self.wire_count()
         N = self.gate_count()
         I = 1
         while I < N:
             I = I * 2
-        R = pow(T, K // I, P) # primitive I-th root of unity
+        R = pow(T, K // I, P) # primitive I-th root of unity, used to perform FFT
         xI = [pow(x, i, P) for i in range(I)]
         XI = util.ifft(xI, R, P)
         AxM = [0 for _ in range(M)]
@@ -100,8 +110,8 @@ class Assembly:
         while I < N:
             I = I * 2
         J = I * 2
-        R = pow(T, K // I, P) # primitive I-th root of unity
-        S = pow(T, K // J, P) # primitive J-th root of unity
+        R = pow(T, K // I, P) # primitive I-th root of unity, used to perform FFT
+        S = pow(T, K // J, P) # primitive J-th root of unity, used to convert the FFT result to the coset
         wM = []
         getw = lambda xM: sum(wM[m] * x for m, x in xM.items()) % P
         for func in self.wires:
@@ -142,13 +152,20 @@ class Assembly:
         D1 = G1 * 0
         D1 = dot_prod_parallel(pypbc.G1, u1U, uU, D1)
         return pairing.apply(B2, A1) == pairing.apply(β2, α1) + pairing.apply(γ2, D1) + pairing.apply(δ2, C1)
+    # the following methods are used to construct the arithmetic circuits
     def MKWIRE(self, func, name = None):
+        # Add a new variable that defined by the given function to the witness vector.
+        # For example, x = MKWIRE(lambda getw, args: getw(w0) * getw(w1) % P) will add a new variable x
+        # to the witness vector, and its value is the product of the values of w0 and w1.
         i = len(self.wires)
         self.wires.append(func)
+        # if name is specified, the variable is public
         if name is not None:
             self.stmts[i] = name
         return Var({i: 1})
-    def ASSERT(self, x, y, z, *, msg = 'assertion error'):
+    def MKGATE(self, x, y, z, *, msg = 'assertion error'):
+        # Add a constraint to the circuit, the constraint is represented as a tuple (x, y, z, msg),
+        # which means x * y = z, the msg is the error message when the constraint is not satisfied.
         if isinstance(x, int) and isinstance(y, int) and isinstance(z, int):
             assert x * y % P == z, msg
             return
@@ -159,6 +176,7 @@ class Assembly:
         if isinstance(z, int):
             z = Var({0: z})
         self.gates.append((x, y, z, msg))
+    # arithmetic operations on variables
     def ADD(self, x, y):
         if isinstance(y, int):
             y = Var({0: y})
@@ -183,9 +201,10 @@ class Assembly:
         if isinstance(x, int):
             return Var({i: m * x % P for i, m in y.items()})
         z = self.MKWIRE(lambda getw, args: getw(x) * getw(y) % P)
-        self.ASSERT(x, y, z, msg = msg)
+        self.MKGATE(x, y, z, msg = msg)
         return z
     def DIV(self, x, y, *, msg = 'division error'):
+        # Note that this division is not the usual division, it is the division in the finite field GF(P).
         if x == 0:
             return 0
         if y == 0:
@@ -197,9 +216,24 @@ class Assembly:
         if isinstance(x, int):
             x = Var({0: x})
         z = self.MKWIRE(lambda getw, args: getw(x) * pow(getw(y), P - 2, P) % P)
-        self.ASSERT(z, y, x, msg = msg)
+        self.MKGATE(z, y, x, msg = msg)
         return z
+    def POW(self, x, nBin):
+        b, *nBin = nBin
+        r = self.IF(b, x, 1)
+        for b in nBin:
+            x = self.MUL(x, x)
+            k = self.IF(b, x, 1)
+            r = self.MUL(r, k)
+        return r
+    def SUM(self, List, r = 0):
+        for i in List:
+            r = self.ADD(r, i)
+        return r
+    # type conversion operations on variables
     def ENUM(self, x, KEYS, *, msg = 'enumerization error'):
+        # Convert x to an enum value, for example, ENUM(3, {1, 3, 5, 7}) will return {1: 0, 3: 1, 5: 0, 7: 0}
+        # and ENUM(2, {1, 3, 5, 7}) will raise an error because 2 is not in the enum set.
         if isinstance(x, int):
             xKey = {K: 1 - pow(x - K, P - 1, P) for K in KEYS}
             assert sum(xKey.values()) == 1, msg
@@ -215,6 +249,10 @@ class Assembly:
         self.ASSERT_EQ(1, e, msg = msg)
         return xKey
     def BINARY(self, x, XLEN, *, msg = 'binarization error'):
+        # Convert x to a binary list with the given bit length, for example, BINARY(5, 3) will return [1, 0, 1]
+        # and BINARY(5, 2) will raise an error because 5 is too large for 2 bits. Note that the bit length
+        # should be less than the bit length of the prime number P, since otherwise the binary representation
+        # of x will be non-unique.
         if not 0 <= XLEN < P.bit_length():
             raise ValueError('invalid bit length')
         if isinstance(x, int):
@@ -230,13 +268,18 @@ class Assembly:
         self.ASSERT_EQ(x, t, msg = msg)
         return xBin
     def NEZ(self, x, *, msg = 'booleanization error'):
+        # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
         if isinstance(x, int):
             return pow(x, P - 1, P)
         v = self.MKWIRE(lambda getw, args: pow(getw(x), P - 2, P))
         o = self.MKWIRE(lambda getw, args: pow(getw(x), P - 1, P))
-        self.ASSERT(o, x, x, msg = msg)
-        self.ASSERT(x, v, o, msg = msg)
+        self.MKGATE(o, x, x, msg = msg) # the following constraint ensures that o has to be 1 if x is non-zero
+        self.MKGATE(x, v, o, msg = msg) # the following constraint ensures that o has to be 0 if x is zero
         return o
+    def GALOIS(self, xBin):
+        # Convert a binary list to an galios field element, for example, GALOIS([1, 0, 1]) will return 5.
+        return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
+    # logical operations on boolean values
     def NOT(self, x):
         return self.SUB(1, x)
     def AND(self, x, y):
@@ -245,30 +288,21 @@ class Assembly:
         return self.SUB(1, self.MUL(self.SUB(1, x), self.SUB(1, y)))
     def XOR(self, x, y):
         return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(x, 2)), self.SUB(1, self.MUL(y, 2)))), 2)
+    # conditional expression and get/set operations on lists and dictionaries
     def IF(self, b, t, f):
+        # Conditional expression, b is a boolean value, t and f are the true and false branches (can be scalars,
+        # (multi-dimensional) lists, dictionaries, or tuples, but should have the same shape).
         if isinstance(t, dict) and isinstance(f, dict):
             return dict((k, self.IF(b, t[k], f[k])) for k in t.keys() | f.keys())
         if isinstance(t, list) and isinstance(f, list):
             return list(self.IF(b, t[k], f[k]) for k in range(max(len(t), len(f))))
         if isinstance(t, tuple) and isinstance(f, tuple):
             return tuple(self.IF(b, t[k], f[k]) for k in range(max(len(t), len(f))))
-        # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f)) # generate more constraints but faster
+        # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f)) # generate more constraints but faster to compile
         return self.ADD(self.MUL(b, self.SUB(t, f)), f)
-    def POW(self, x, nBin):
-        b, *nBin = nBin
-        r = self.IF(b, x, 1)
-        for b in nBin:
-            x = self.MUL(x, x)
-            k = self.IF(b, x, 1)
-            r = self.MUL(r, k)
-        return r
-    def SUM(self, List, r = 0):
-        for i in List:
-            r = self.ADD(r, i)
-        return r
-    def GALOIS(self, xBin):
-        return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
     def GETBYKEY(self, Value, iKey):
+        # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
+        # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
         if isinstance(Value, dict):
             if all(isinstance(V, dict) for V in Value.values()):
                 return dict((k, self.GETBYKEY({K: V[k] for K, V in Value.items()}, iKey)) for k in set.union(*map(set, Value.values())))
@@ -285,6 +319,10 @@ class Assembly:
                 return tuple(self.GETBYKEY([V[k] for V in Value], iKey) for k in range(max(map(len, Value))))
         return self.SUM(self.MUL(iKey[K], Value[K]) for K in iKey)
     def SETBYKEY(self, v, Value, *iKeys, c = 1):
+        # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return a new
+        # (multi-dimensional) list or dictionary with the value set.
+        # For example, SETBYKEY(5, {2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}, {0: 0, 1: 1}) means to set the value
+        # of {2: [1, 2], 3: [3, 4]}[2][1] to 5, so the result will be {2: [1, 5], 3: [3, 4]}.
         if len(iKeys) == 0:
             return self.IF(c, v, Value)
         iKey, *iKeys = iKeys
@@ -292,28 +330,31 @@ class Assembly:
             return {K: self.SETBYKEY(v, V, *iKeys, c = self.AND(c, iKey[K])) for K, V in Value.items()}
         if isinstance(Value, list):
             return [self.SETBYKEY(v, V, *iKeys, c = self.AND(c, iKey[K])) for K, V in enumerate(Value)]
-    def GE(self, x, y, BLEN): # 0 <= x - y < 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(x, y)), BLEN + 1)[BLEN]
-    def LE(self, x, y, BLEN): # 0 <= y - x < 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(y, x)), BLEN + 1)[BLEN]
-    def GT(self, x, y, BLEN): # 0 < x - y <= 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(x, y), 1)), BLEN + 1)[BLEN]
-    def LT(self, x, y, BLEN): # 0 < y - x <= 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(y, x), 1)), BLEN + 1)[BLEN]
-    def ASSERT_GE(self, x, y, BLEN, *, msg = 'GE check failed'): # assert 0 <= x - y < 2 ** BLEN
+    # compare operations on galios field elements
+    def GE(self, x, y, BLEN, msg = 'GE compare failed'): # 0 <= x - y < 2 ** BLEN
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(x, y)), BLEN + 1, msg = msg)[BLEN]
+    def LE(self, x, y, BLEN, msg = 'LE compare failed'): # 0 <= y - x < 2 ** BLEN
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(y, x)), BLEN + 1, msg = msg)[BLEN]
+    def GT(self, x, y, BLEN, msg = 'GT compare failed'): # 0 < x - y <= 2 ** BLEN
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(x, y), 1)), BLEN + 1, msg = msg)[BLEN]
+    def LT(self, x, y, BLEN, msg = 'LT compare failed'): # 0 < y - x <= 2 ** BLEN
+        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(y, x), 1)), BLEN + 1, msg = msg)[BLEN]
+    # assertion operations on galios field elements
+    def ASSERT_GE(self, x, y, BLEN, *, msg = 'GE assertion failed'): # assert 0 <= x - y < 2 ** BLEN
         return self.BINARY(self.SUB(x, y), BLEN, msg = msg)
-    def ASSERT_LE(self, x, y, BLEN, *, msg = 'LE check failed'): # assert 0 <= y - x < 2 ** BLEN
+    def ASSERT_LE(self, x, y, BLEN, *, msg = 'LE assertion failed'): # assert 0 <= y - x < 2 ** BLEN
         return self.BINARY(self.SUB(y, x), BLEN, msg = msg)
-    def ASSERT_GT(self, x, y, BLEN, *, msg = 'GT check failed'): # assert 0 < x - y <= 2 ** BLEN
+    def ASSERT_GT(self, x, y, BLEN, *, msg = 'GT assertion failed'): # assert 0 < x - y <= 2 ** BLEN
         return self.BINARY(self.SUB(self.SUB(x, y), 1), BLEN, msg = msg)
-    def ASSERT_LT(self, x, y, BLEN, *, msg = 'LT check failed'): # assert 0 < y - x <= 2 ** BLEN
+    def ASSERT_LT(self, x, y, BLEN, *, msg = 'LT assertion failed'): # assert 0 < y - x <= 2 ** BLEN
         return self.BINARY(self.SUB(self.SUB(y, x), 1), BLEN, msg = msg)
-    def ASSERT_EQ(self, x, y, *, msg = 'EQ check failed'):
-        self.ASSERT(1, x, y, msg = msg)
-    def ASSERT_NE(self, x, y, *, msg = 'NE check failed'):
+    def ASSERT_EQ(self, x, y, *, msg = 'EQ assertion failed'):
+        self.MKGATE(1, x, y, msg = msg)
+    def ASSERT_NE(self, x, y, *, msg = 'NE assertion failed'):
         self.DIV(1, self.SUB(x, y), msg = msg)
-    def ASSERT_ISBOOL(self, x, *, msg = 'ISBOOL check failed'):
-        self.ASSERT(x, x, x, msg = msg)
+    def ASSERT_ISBOOL(self, x, *, msg = 'ISBOOL assertion failed'):
+        self.MKGATE(x, x, x, msg = msg)
+    # bitwise operations on binary lists
     def ROTL(self, xBin, NROT):
         NROT = -NROT % len(xBin)
         return xBin[NROT:] + xBin[:NROT]
@@ -331,6 +372,7 @@ class Assembly:
     def BITXOR(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         return [self.XOR(a, b) for a, b in zip(xBin, yBin)]
+    # arithmetic operations on binary lists
     def BINADD(self, xBin, yBin, c = 0):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
@@ -349,6 +391,7 @@ class Assembly:
         zBin = self.BINARY(self.ADD(self.MUL(self.GALOIS(xBin), self.GALOIS(yBin)), self.ADD(self.GALOIS(cBin), self.GALOIS(dBin))), BLEN * 2)
         return zBin[:BLEN], zBin[BLEN:]
     def BINDIVMOD(self, xBin, yBin, *, msg = 'binary divmod error'):
+        # Division and modulo operations on binary lists.
         QLEN = len(xBin)
         RLEN = len(yBin)
         x = self.GALOIS(xBin)
@@ -367,7 +410,7 @@ class Assembly:
             y = Var({0: y})
         q = self.MKWIRE(lambda getw, args: getw(x) // getw(y))
         r = self.MKWIRE(lambda getw, args: getw(x) % getw(y))
-        self.ASSERT(q, y, self.SUB(x, r), msg = msg) # assert y * q == x - r
+        self.MKGATE(q, y, self.SUB(x, r), msg = msg) # assert y * q == x - r
         qBin = self.ASSERT_GE(q, 0, QLEN, msg = msg)
         rBin = self.ASSERT_GE(r, 0, RLEN, msg = msg)
         _Bin = self.ASSERT_LT(r, y, RLEN, msg = msg)
@@ -382,9 +425,11 @@ class Assembly:
             rBin = self.BINMUL(rBin, kBin)[0]
         return rBin
     def BINSUM(self, List, c = 0): # c < len(List)
+        # BINSUM generates less constraints than BINADD when their are lots of binary numbers to add.
         # assert len(set(map(len, List))) == 1
         BLEN = max(map(len, List))
         return self.BINARY(self.SUM(map(self.GALOIS, List), c), BLEN + (len(List) - 1).bit_length())[:BLEN]
+    # compare operations on binary lists
     def BINGE(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
@@ -401,34 +446,39 @@ class Assembly:
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 1)), BLEN + 1)[BLEN]
-    def ASSERT_BINGE(self, xBin, yBin, *, msg = 'BINGE check failed'):
+    # assertion operations on binary lists
+    def ASSERT_BINGE(self, xBin, yBin, *, msg = 'BINGE assertion failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), BLEN, msg = msg)
-    def ASSERT_BINLE(self, xBin, yBin, *, msg = 'BINLE check failed'):
+    def ASSERT_BINLE(self, xBin, yBin, *, msg = 'BINLE assertion failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), BLEN, msg = msg)
-    def ASSERT_BINGT(self, xBin, yBin, *, msg = 'BINGT check failed'):
+    def ASSERT_BINGT(self, xBin, yBin, *, msg = 'BINGT assertion failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 1), BLEN, msg = msg)
-    def ASSERT_BINLT(self, xBin, yBin, *, msg = 'BINLT check failed'):
+    def ASSERT_BINLT(self, xBin, yBin, *, msg = 'BINLT assertion failed'):
         # assert len(xBin) == len(yBin)
         BLEN = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 1), BLEN, msg = msg)
     def PARAM(self, name, public = False):
+        # Add an input parameter to the circuit, the value of the parameter can be set when calling the prove method.
         return self.MKWIRE(lambda getw, args: args[name], name if public else None)
     def REVEAL(self, x, name = None, *, msg = 'reveal error'):
+        # Make a variable public.
         if isinstance(x, int):
             x = Var({0: x})
         r = self.MKWIRE(lambda getw, args: getw(x), name)
         self.ASSERT_EQ(x, r, msg = msg)
         return r
+# check the type of a value
 def isgal(x):
     return isinstance(x, int | Var)
 def isbin(x):
     return isinstance(x, list) and all(isinstance(b, int | Var) for b in x)
+# assert the type of a value
 def asint(x):
     if isinstance(x, int):
         return (x + (P - 1) // 2) % P - (P - 1) // 2
@@ -441,6 +491,7 @@ def asbin(x):
     if isinstance(x, list) and all(isinstance(b, int | Var) for b in x):
         return x
     raise TypeError('expected a binary')
+# get the shape of a value (binary list will be treated as a list of integers)
 def shape(x):
     if isinstance(x, int | Var):
         return (), None
@@ -460,6 +511,8 @@ def shape(x):
         raise TypeError('inconsistent shape of dict values')
     raise TypeError('unsupported data type')
 class Compiler(ast.NodeVisitor, Assembly):
+    # The Compiler class is a wrapper of the Assembly class, it compiles the given Python code to the arithmetic
+    # circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
         ast.NodeVisitor.__init__(self)
         Assembly.__init__(self)
@@ -475,7 +528,7 @@ class Compiler(ast.NodeVisitor, Assembly):
             'private': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt),
             'public': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt, public = True),
             'reveal': lambda x, fmt, *args: self.REVEAL(self.GALOIS(x) if isbin(x) else asgal(x), fmt.format(*map(asint, args)) if args else fmt),
-        }]
+        }] # the stack is used to store the local variables
     def visit_Module(self, node):
         for stmt in node.body:
             flag, result = self.visit(stmt)
@@ -808,6 +861,7 @@ class Compiler(ast.NodeVisitor, Assembly):
     def generic_visit(self, node):
         raise SyntaxError('unsupported syntax')
 class Timer:
+    # This is used to measure the time of a block of code.
     def __init__(self, text):
         self.text = text
     def __enter__(self):

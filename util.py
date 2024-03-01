@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-import random
 import sys
 sys.setrecursionlimit(0x10000)
 def fft(a, w, p):
@@ -17,6 +16,6 @@ def fft(a, w, p):
     return r
 def ifft(a, w, p):
     N = len(a)
-    w = modinv(w, p)
-    N = modinv(N, p)
+    w = pow(w, -1, p)
+    N = pow(N, -1, p)
     return [x * N % p for x in fft(a, w, p)]
