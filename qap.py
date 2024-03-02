@@ -235,15 +235,15 @@ class Assembly:
         # and ENUM(2, {1, 3, 5, 7}) will raise an error because 2 is not in the enum set.
         if isinstance(xGal, int):
             xKey = {kInt: 0x01 - pow(xGal - kInt, P - 1, P) for kInt in kSet}
-            assert sum(xKey.values()) == 0x01, msg
+            assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
             return xKey
         bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 - pow(getw(xGal) - kInt, P - 1, P))
         xKey = {kInt: 0x00 for kInt in kSet}
         for kInt in kSet:
-            bBit = xKey[kInt] = bind(kInt)
-            self.ASSERT_ISBOOL(bBit)
-        tGal = self.SUM(self.MUL(bBit, kInt) for kInt, bBit in xKey.items())
-        eGal = self.SUM(self.MUL(bBit, 0x01) for kInt, bBit in xKey.items())
+            xBit = xKey[kInt] = bind(kInt)
+            self.ASSERT_ISBOOL(xBit)
+        tGal = self.SUM(self.MUL(xBit, kInt) for kInt, xBit in xKey.items())
+        eGal = self.SUM(self.MUL(xBit, 0x01) for kInt, xBit in xKey.items())
         self.ASSERT_EQ(xGal, tGal, msg = msg)
         self.ASSERT_EQ(0x01, eGal, msg = msg)
         return xKey
@@ -256,14 +256,14 @@ class Assembly:
             raise ValueError('invalid bit length')
         if isinstance(xGal, int):
             xBin = [xGal % P >> iLen & 0x01 for iLen in range(xLen)]
-            assert 0x00 <= xGal % P < 0x02 ** xLen, msg
+            assert sum(xBit * 0x02 ** iLen for iLen, xBit in enumerate(xBin)) == xGal, msg
             return xBin
         bind = lambda iLen: self.MKWIRE(lambda getw, args: getw(xGal) >> iLen & 0x01)
         xBin = [0x00 for _ in range(xLen)]
         for iLen in range(xLen):
-            bBit = xBin[iLen] = bind(iLen)
-            self.ASSERT_ISBOOL(bBit)
-        tGal = self.SUM(self.MUL(bBit, 0x02 ** iLen) for iLen, bBit in enumerate(xBin))
+            xBit = xBin[iLen] = bind(iLen)
+            self.ASSERT_ISBOOL(xBit)
+        tGal = self.SUM(self.MUL(xBit, 0x02 ** iLen) for iLen, xBit in enumerate(xBin))
         self.ASSERT_EQ(xGal, tGal, msg = msg)
         return xBin
     def NEZ(self, xGal, *, msg = 'booleanization error'):
@@ -292,43 +292,43 @@ class Assembly:
         # Conditional expression, b is a boolean value, t and f are the true and false branches (can be scalars,
         # (multi-dimensional) lists, dictionaries, or tuples, but should have the same shape).
         if isinstance(tAny, dict) and isinstance(fAny, dict):
-            return dict((uInt, self.IF(bBit, tAny[uInt], fAny[uInt])) for uInt in tAny.keys() | fAny.keys())
+            return dict((zInt, self.IF(bBit, tAny[zInt], fAny[zInt])) for zInt in tAny.keys() | fAny.keys())
         if isinstance(tAny, list) and isinstance(fAny, list):
-            return list(self.IF(bBit, tAny[uInt], fAny[uInt]) for uInt in range(max(len(tAny), len(fAny))))
+            return list(self.IF(bBit, tAny[zInt], fAny[zInt]) for zInt in range(max(len(tAny), len(fAny))))
         if isinstance(tAny, tuple) and isinstance(fAny, tuple):
-            return tuple(self.IF(bBit, tAny[uInt], fAny[uInt]) for uInt in range(max(len(tAny), len(fAny))))
+            return tuple(self.IF(bBit, tAny[zInt], fAny[zInt]) for zInt in range(max(len(tAny), len(fAny))))
         # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f)) # generate more constraints but faster to compile
         return self.ADD(self.MUL(bBit, self.SUB(tAny, fAny)), fAny)
-    def GETBYKEY(self, lAny, kKey):
+    def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
         # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
-        if isinstance(lAny, dict):
-            if all(isinstance(lBit, dict) for lBit in lAny.values()):
-                return dict((uInt, self.GETBYKEY({lInt: lBit[uInt] for lInt, lBit in lAny.items()}, kKey)) for uInt in set.union(*map(set, lAny.values())))
-            if all(isinstance(lBit, list) for lBit in lAny.values()):
-                return list(self.GETBYKEY({lInt: lBit[uInt] for lInt, lBit in lAny.items()}, kKey) for uInt in range(max(map(len, lAny.values()))))
-            if all(isinstance(lBit, tuple) for lBit in lAny.values()):
-                return tuple(self.GETBYKEY({lInt: lBit[uInt] for lInt, lBit in lAny.items()}, kKey) for uInt in range(max(map(len, lAny.values()))))
-        if isinstance(lAny, list):
-            if all(isinstance(lBit, dict) for lBit in lAny):
-                return dict((uInt, self.GETBYKEY([lBit[uInt] for lBit in lAny], kKey)) for uInt in set.union(*map(set, lAny)))
-            if all(isinstance(lBit, list) for lBit in lAny):
-                return list(self.GETBYKEY([lBit[uInt] for lBit in lAny], kKey) for uInt in range(max(map(len, lAny))))
-            if all(isinstance(lBit, tuple) for lBit in lAny):
-                return tuple(self.GETBYKEY([lBit[uInt] for lBit in lAny], kKey) for uInt in range(max(map(len, lAny))))
-        return self.SUM(self.MUL(kKey[kInt], lAny[kInt]) for kInt in kKey)
-    def SETBYKEY(self, vAny, lAny, *kKes, cBit = 0x01):
+        if isinstance(lSpc, dict):
+            if all(isinstance(lItm, dict) for lItm in lSpc.values()):
+                return dict((zInt, self.GETBYKEY({kInt: lItm[zInt] for kInt, lItm in lSpc.items()}, iKey)) for zInt in set.union(*map(set, lSpc.values())))
+            if all(isinstance(lItm, list) for lItm in lSpc.values()):
+                return list(self.GETBYKEY({kInt: lItm[zInt] for kInt, lItm in lSpc.items()}, iKey) for zInt in range(max(map(len, lSpc.values()))))
+            if all(isinstance(lItm, tuple) for lItm in lSpc.values()):
+                return tuple(self.GETBYKEY({kInt: lItm[zInt] for kInt, lItm in lSpc.items()}, iKey) for zInt in range(max(map(len, lSpc.values()))))
+        if isinstance(lSpc, list):
+            if all(isinstance(lItm, dict) for lItm in lSpc):
+                return dict((zInt, self.GETBYKEY([lItm[zInt] for lItm in lSpc], iKey)) for zInt in set.union(*map(set, lSpc)))
+            if all(isinstance(lItm, list) for lItm in lSpc):
+                return list(self.GETBYKEY([lItm[zInt] for lItm in lSpc], iKey) for zInt in range(max(map(len, lSpc))))
+            if all(isinstance(lItm, tuple) for lItm in lSpc):
+                return tuple(self.GETBYKEY([lItm[zInt] for lItm in lSpc], iKey) for zInt in range(max(map(len, lSpc))))
+        return self.SUM(self.MUL(iKey[kInt], lSpc[kInt]) for kInt in iKey)
+    def SETBYKEY(self, vItm, lSpc, *iKes, cBit = 0x01):
         # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return a new
         # (multi-dimensional) list or dictionary with the value set.
         # For example, SETBYKEY(5, {2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}, {0: 0, 1: 1}) means to set the value
         # of {2: [1, 2], 3: [3, 4]}[2][1] to 5, so the result will be {2: [1, 5], 3: [3, 4]}.
-        if len(kKes) == 0:
-            return self.IF(cBit, vAny, lAny)
-        kKey, *kKes = kKes
-        if isinstance(lAny, dict):
-            return {lInt: self.SETBYKEY(vAny, lBit, *kKes, cBit = self.AND(cBit, kKey[lInt])) for lInt, lBit in lAny.items()}
-        if isinstance(lAny, list):
-            return [self.SETBYKEY(vAny, lBit, *kKes, cBit = self.AND(cBit, kKey[lInt])) for lInt, lBit in enumerate(lAny)]
+        if len(iKes) == 0:
+            return self.IF(cBit, vItm, lSpc)
+        iKey, *iKes = iKes
+        if isinstance(lSpc, dict):
+            return {kInt: self.SETBYKEY(vItm, lItm, *iKes, cBit = self.AND(cBit, iKey[kInt])) for kInt, lItm in lSpc.items()}
+        if isinstance(lSpc, list):
+            return [self.SETBYKEY(vItm, lItm, *iKes, cBit = self.AND(cBit, iKey[kInt])) for kInt, lItm in enumerate(lSpc)]
     # compare operations on galios field elements
     def GE(self, xGal, yGal, bLen, msg = 'GE compare failed'): # 0x00 <= xGal - yGal < 0x02 ** bLen
         return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(xGal, yGal)), bLen + 1, msg = msg)[bLen]
@@ -400,9 +400,8 @@ class Assembly:
         if yGal == 0x00:
             raise ZeroDivisionError
         if isinstance(xGal, int) and isinstance(yGal, int):
-            assert 0x00 <= xGal // yGal < 0x02 ** qLen, msg
-            assert 0x00 <= xGal % yGal < 0x02 ** rLen, msg
-            return [xGal // yGal >> iLen & 0x01 for iLen in range(qLen)], [xGal % yGal >> iLen & 0x01 for iLen in range(rLen)]
+            qGal, rGal = divmod(xGal, yGal)
+            return [qGal >> iLen & 0x01 for iLen in range(qLen)], [rGal >> iLen & 0x01 for iLen in range(rLen)]
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         if isinstance(yGal, int):
