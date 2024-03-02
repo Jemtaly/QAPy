@@ -19,15 +19,6 @@ params = pypbc.Parameters(
 pairing = pypbc.Pairing(params)
 G1 = pypbc.Element.random(pairing, pypbc.G1)
 G2 = pypbc.Element.random(pairing, pypbc.G2)
-# scalar multiplication and dot product optimized for parallel execution
-def worker(group, b, z):
-    return (pypbc.Element.from_bytes(pairing, group, b) * z).to_bytes()
-def scalar_mult_parallel(group, g, Z):
-    with multiprocessing.Pool() as pool:
-        return [pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for z in Z))]
-def dot_prod_parallel(group, G, Z, c):
-    with multiprocessing.Pool() as pool:
-        return sum((pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for g, z in zip(G, Z)))), c)
 # the order of the SS512 curve
 P = pairing.order()
 # find the largest K such that P - 1 is divisible by 2 ** K, and Z is a primitive root of unity, they are used to perform FFT
@@ -38,6 +29,15 @@ for Z in range(2, P):
     if pow(Z, (P - 1) // 2, P) != 1:
         break
 T = pow(Z, (P - 1) // K, P)
+# scalar multiplication and dot product optimized for parallel execution
+def worker(group, b, z):
+    return (pypbc.Element.from_bytes(pairing, group, b) * z).to_bytes()
+def scalar_mult_parallel(group, g, Z):
+    with multiprocessing.Pool() as pool:
+        return [pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for z in Z))]
+def dot_prod_parallel(group, G, Z, c):
+    with multiprocessing.Pool() as pool:
+        return sum((pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for g, z in zip(G, Z)))), c)
 class Var:
     # All variables in a program are linear combinations of the variables in its witness vector, so they
     # can be represented by a dictionary that maps the indices of the variables in the witness vector to
@@ -77,9 +77,9 @@ class Assembly:
         R = pow(T, K // I, P) # primitive I-th root of unity, used to perform FFT
         xI = [pow(x, i, P) for i in range(I)]
         XI = util.ifft(xI, R, P)
-        AxM = [0 for _ in range(M)]
-        BxM = [0 for _ in range(M)]
-        CxM = [0 for _ in range(M)]
+        AxM = [0x00 for _ in range(M)]
+        BxM = [0x00 for _ in range(M)]
+        CxM = [0x00 for _ in range(M)]
         for X, (aM, bM, cM, msg) in zip(XI, self.gates):
             for m, a in aM.items():
                 AxM[m] += a * X
@@ -87,7 +87,7 @@ class Assembly:
                 BxM[m] += b * X
             for m, c in cM.items():
                 CxM[m] += c * X
-        Zx = pow(x, I, P) - 1
+        Zx = pow(x, I, P) - 0x01
         Γ = pow(γ, P - 2, P)
         Δ = pow(δ, P - 2, P)
         α1 = G1 * α
@@ -128,9 +128,9 @@ class Assembly:
             awN.append(aw)
             bwN.append(bw)
             cwN.append(cw)
-        AwI = util.ifft(awN + [0] * (I - N), R, P)
-        BwI = util.ifft(bwN + [0] * (I - N), R, P)
-        CwI = util.ifft(cwN + [0] * (I - N), R, P)
+        AwI = util.ifft(awN + [0x00] * (I - N), R, P)
+        BwI = util.ifft(bwN + [0x00] * (I - N), R, P)
+        CwI = util.ifft(cwN + [0x00] * (I - N), R, P)
         awI = util.fft([Aw * pow(S, i, P) % P for i, Aw in enumerate(AwI)], R, P) # FFT in coset
         bwI = util.fft([Bw * pow(S, i, P) % P for i, Bw in enumerate(BwI)], R, P) # FFT in coset
         cwI = util.fft([Cw * pow(S, i, P) % P for i, Cw in enumerate(CwI)], R, P) # FFT in coset
@@ -148,7 +148,7 @@ class Assembly:
         return A1, B2, C1, uU
     @staticmethod
     def verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
-        D1 = G1 * 0
+        D1 = G1 * 0x00
         D1 = dot_prod_parallel(pypbc.G1, u1U, uU, D1)
         return pairing.apply(B2, A1) == pairing.apply(β2, α1) + pairing.apply(γ2, D1) + pairing.apply(δ2, C1)
     # the following methods are used to construct the arithmetic circuits
@@ -161,317 +161,317 @@ class Assembly:
         # if name is specified, the variable is public
         if name is not None:
             self.stmts[i] = name
-        return Var({i: 1})
-    def MKGATE(self, x, y, z, *, msg = 'assertion error'):
+        return Var({i: 0x01})
+    def MKGATE(self, xGal, yGal, zGal, *, msg = 'assertion error'):
         # Add a constraint to the circuit, the constraint is represented as a tuple (x, y, z, msg),
         # which means x * y = z, the msg is the error message when the constraint is not satisfied.
-        if isinstance(x, int) and isinstance(y, int) and isinstance(z, int):
-            assert x * y % P == z, msg
+        if isinstance(xGal, int) and isinstance(yGal, int) and isinstance(zGal, int):
+            assert xGal * yGal % P == zGal, msg
             return
-        if isinstance(x, int):
-            x = Var({0: x})
-        if isinstance(y, int):
-            y = Var({0: y})
-        if isinstance(z, int):
-            z = Var({0: z})
-        self.gates.append((x, y, z, msg))
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
+        if isinstance(yGal, int):
+            yGal = Var({0: yGal})
+        if isinstance(zGal, int):
+            zGal = Var({0: zGal})
+        self.gates.append((xGal, yGal, zGal, msg))
     # arithmetic operations on variables
-    def ADD(self, x, y):
-        if isinstance(y, int):
-            y = Var({0: y})
-        if isinstance(x, int):
-            x = Var({0: x})
-        z = Var({k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) + y.get(k, 0)) % P)})
-        return z.get(0, 0) if z.keys() <= {0} else z
-    def SUB(self, x, y):
-        if isinstance(y, int):
-            y = Var({0: y})
-        if isinstance(x, int):
-            x = Var({0: x})
-        z = Var({k: v for k in x.keys() | y.keys() if (v := (x.get(k, 0) - y.get(k, 0)) % P)})
-        return z.get(0, 0) if z.keys() <= {0} else z
-    def MUL(self, x, y, *, msg = 'multiplication error'):
-        if x == 0 or y == 0:
-            return 0
-        if isinstance(x, int) and isinstance(y, int):
-            return x * y % P
-        if isinstance(y, int):
-            return Var({i: m * y % P for i, m in x.items()})
-        if isinstance(x, int):
-            return Var({i: m * x % P for i, m in y.items()})
-        z = self.MKWIRE(lambda getw, args: getw(x) * getw(y) % P)
-        self.MKGATE(x, y, z, msg = msg)
-        return z
-    def DIV(self, x, y, *, msg = 'division error'):
+    def ADD(self, xGal, yGal):
+        if isinstance(yGal, int):
+            yGal = Var({0: yGal})
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
+        zGal = Var({k: v for k in xGal.keys() | yGal.keys() if (v := (xGal.get(k, 0x00) + yGal.get(k, 0x00)) % P)})
+        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal
+    def SUB(self, xGal, yGal):
+        if isinstance(yGal, int):
+            yGal = Var({0: yGal})
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
+        zGal = Var({k: v for k in xGal.keys() | yGal.keys() if (v := (xGal.get(k, 0x00) - yGal.get(k, 0x00)) % P)})
+        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal
+    def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
+        if xGal == 0x00 or yGal == 0x00:
+            return 0x00
+        if isinstance(xGal, int) and isinstance(yGal, int):
+            return xGal * yGal % P
+        if isinstance(yGal, int):
+            return Var({i: m * yGal % P for i, m in xGal.items()})
+        if isinstance(xGal, int):
+            return Var({i: m * xGal % P for i, m in yGal.items()})
+        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * getw(yGal) % P)
+        self.MKGATE(xGal, yGal, zGal, msg = msg)
+        return zGal
+    def DIV(self, xGal, yGal, *, msg = 'division error'):
         # Note that this division is not the usual division, it is the division in the finite field GF(P).
-        if x == 0:
-            return 0
-        if y == 0:
+        if xGal == 0x00:
+            return 0x00
+        if yGal == 0x00:
             raise ZeroDivisionError
-        if isinstance(x, int) and isinstance(y, int):
-            return x * pow(y, P - 2, P) % P
-        if isinstance(y, int):
-            return Var({i: m * pow(y, P - 2, P) % P for i, m in x.items()})
-        if isinstance(x, int):
-            x = Var({0: x})
-        z = self.MKWIRE(lambda getw, args: getw(x) * pow(getw(y), P - 2, P) % P)
-        self.MKGATE(z, y, x, msg = msg)
-        return z
-    def POW(self, x, nBin):
-        b, *nBin = nBin
-        r = self.IF(b, x, 1)
-        for b in nBin:
-            x = self.MUL(x, x)
-            k = self.IF(b, x, 1)
-            r = self.MUL(r, k)
-        return r
-    def SUM(self, List, r = 0):
-        for i in List:
-            r = self.ADD(r, i)
-        return r
+        if isinstance(xGal, int) and isinstance(yGal, int):
+            return xGal * pow(yGal, P - 2, P) % P
+        if isinstance(yGal, int):
+            return Var({i: m * pow(yGal, P - 2, P) % P for i, m in xGal.items()})
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
+        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), P - 2, P) % P)
+        self.MKGATE(zGal, yGal, xGal, msg = msg)
+        return zGal
+    def POW(self, xGal, nBin):
+        nBit, *nBin = nBin
+        rGal = self.IF(nBit, xGal, 0x01)
+        for nBit in nBin:
+            xGal = self.MUL(xGal, xGal)
+            kGal = self.IF(nBit, xGal, 0x01)
+            rGal = self.MUL(rGal, kGal)
+        return rGal
+    def SUM(self, iLst, rGal = 0x00):
+        for iGal in iLst:
+            rGal = self.ADD(rGal, iGal)
+        return rGal
     # type conversion operations on variables
-    def ENUM(self, x, KEYS, *, msg = 'enumerization error'):
+    def ENUM(self, xGal, kSet, *, msg = 'enumerization error'):
         # Convert x to an enum value, for example, ENUM(3, {1, 3, 5, 7}) will return {1: 0, 3: 1, 5: 0, 7: 0}
         # and ENUM(2, {1, 3, 5, 7}) will raise an error because 2 is not in the enum set.
-        if isinstance(x, int):
-            xKey = {K: 1 - pow(x - K, P - 1, P) for K in KEYS}
-            assert sum(xKey.values()) == 1, msg
+        if isinstance(xGal, int):
+            xKey = {kInt: 0x01 - pow(xGal - kInt, P - 1, P) for kInt in kSet}
+            assert sum(xKey.values()) == 0x01, msg
             return xKey
-        bind = lambda K: self.MKWIRE(lambda getw, args: 1 - pow(getw(x) - K, P - 1, P))
-        xKey = {K: 0 for K in KEYS}
-        for K in KEYS:
-            b = xKey[K] = bind(K)
-            self.ASSERT_ISBOOL(b)
-        t = self.SUM(self.MUL(b, K) for K, b in xKey.items())
-        e = self.SUM(self.MUL(b, 1) for K, b in xKey.items())
-        self.ASSERT_EQ(x, t, msg = msg)
-        self.ASSERT_EQ(1, e, msg = msg)
+        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 - pow(getw(xGal) - kInt, P - 1, P))
+        xKey = {kInt: 0x00 for kInt in kSet}
+        for kInt in kSet:
+            bBit = xKey[kInt] = bind(kInt)
+            self.ASSERT_ISBOOL(bBit)
+        tGal = self.SUM(self.MUL(bBit, kInt) for kInt, bBit in xKey.items())
+        eGal = self.SUM(self.MUL(bBit, 0x01) for kInt, bBit in xKey.items())
+        self.ASSERT_EQ(xGal, tGal, msg = msg)
+        self.ASSERT_EQ(0x01, eGal, msg = msg)
         return xKey
-    def BINARY(self, x, XLEN, *, msg = 'binarization error'):
+    def BINARY(self, xGal, xLen, *, msg = 'binarization error'):
         # Convert x to a binary list with the given bit length, for example, BINARY(5, 3) will return [1, 0, 1]
         # and BINARY(5, 2) will raise an error because 5 is too large for 2 bits. Note that the bit length
         # should be less than the bit length of the prime number P, since otherwise the binary representation
         # of x will be non-unique.
-        if not 0 <= XLEN < P.bit_length():
+        if not 0 <= xLen < P.bit_length():
             raise ValueError('invalid bit length')
-        if isinstance(x, int):
-            xBin = [x % P >> I & 1 for I in range(XLEN)]
-            assert 0 <= x % P < 2 ** XLEN, msg
+        if isinstance(xGal, int):
+            xBin = [xGal % P >> iLen & 0x01 for iLen in range(xLen)]
+            assert 0x00 <= xGal % P < 0x02 ** xLen, msg
             return xBin
-        bind = lambda I: self.MKWIRE(lambda getw, args: getw(x) >> I & 1)
-        xBin = [0 for _ in range(XLEN)]
-        for I in range(XLEN):
-            b = xBin[I] = bind(I)
-            self.ASSERT_ISBOOL(b)
-        t = self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
-        self.ASSERT_EQ(x, t, msg = msg)
+        bind = lambda iLen: self.MKWIRE(lambda getw, args: getw(xGal) >> iLen & 0x01)
+        xBin = [0x00 for _ in range(xLen)]
+        for iLen in range(xLen):
+            bBit = xBin[iLen] = bind(iLen)
+            self.ASSERT_ISBOOL(bBit)
+        tGal = self.SUM(self.MUL(bBit, 0x02 ** iLen) for iLen, bBit in enumerate(xBin))
+        self.ASSERT_EQ(xGal, tGal, msg = msg)
         return xBin
-    def NEZ(self, x, *, msg = 'booleanization error'):
+    def NEZ(self, xGal, *, msg = 'booleanization error'):
         # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
-        if isinstance(x, int):
-            return pow(x, P - 1, P)
-        v = self.MKWIRE(lambda getw, args: pow(getw(x), P - 2, P))
-        o = self.MKWIRE(lambda getw, args: pow(getw(x), P - 1, P))
-        self.MKGATE(o, x, x, msg = msg) # the following constraint ensures that o has to be 1 if x is non-zero
-        self.MKGATE(x, v, o, msg = msg) # the following constraint ensures that o has to be 0 if x is zero
-        return o
+        if isinstance(xGal, int):
+            return pow(xGal, P - 1, P)
+        iGal = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 2, P))
+        rBit = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 1, P))
+        self.MKGATE(rBit, xGal, xGal, msg = msg) # the following constraint ensures that o has to be 1 if x is non-zero
+        self.MKGATE(xGal, iGal, rBit, msg = msg) # the following constraint ensures that o has to be 0 if x is zero
+        return rBit
     def GALOIS(self, xBin):
         # Convert a binary list to an galios field element, for example, GALOIS([1, 0, 1]) will return 5.
-        return self.SUM(self.MUL(b, 1 << I) for I, b in enumerate(xBin))
+        return self.SUM(self.MUL(bBit, 0x02 ** iLen) for iLen, bBit in enumerate(xBin))
     # logical operations on boolean values
-    def NOT(self, x):
-        return self.SUB(1, x)
-    def AND(self, x, y):
-        return self.MUL(x, y)
-    def OR(self, x, y):
-        return self.SUB(1, self.MUL(self.SUB(1, x), self.SUB(1, y)))
-    def XOR(self, x, y):
-        return self.DIV(self.SUB(1, self.MUL(self.SUB(1, self.MUL(x, 2)), self.SUB(1, self.MUL(y, 2)))), 2)
+    def NOT(self, xBit):
+        return self.SUB(0x01, xBit)
+    def AND(self, xBit, yBit):
+        return self.MUL(xBit, yBit)
+    def OR(self, xBit, yBit):
+        return self.SUB(0x01, self.MUL(self.SUB(0x01, xBit), self.SUB(0x01, yBit)))
+    def XOR(self, xBit, yBit):
+        return self.DIV(self.SUB(0x01, self.MUL(self.SUB(0x01, self.MUL(xBit, 0x02)), self.SUB(0x01, self.MUL(yBit, 0x02)))), 0x02)
     # conditional expression and get/set operations on lists and dictionaries
-    def IF(self, b, t, f):
+    def IF(self, bBit, tAny, fAny):
         # Conditional expression, b is a boolean value, t and f are the true and false branches (can be scalars,
         # (multi-dimensional) lists, dictionaries, or tuples, but should have the same shape).
-        if isinstance(t, dict) and isinstance(f, dict):
-            return dict((k, self.IF(b, t[k], f[k])) for k in t.keys() | f.keys())
-        if isinstance(t, list) and isinstance(f, list):
-            return list(self.IF(b, t[k], f[k]) for k in range(max(len(t), len(f))))
-        if isinstance(t, tuple) and isinstance(f, tuple):
-            return tuple(self.IF(b, t[k], f[k]) for k in range(max(len(t), len(f))))
+        if isinstance(tAny, dict) and isinstance(fAny, dict):
+            return dict((uInt, self.IF(bBit, tAny[uInt], fAny[uInt])) for uInt in tAny.keys() | fAny.keys())
+        if isinstance(tAny, list) and isinstance(fAny, list):
+            return list(self.IF(bBit, tAny[uInt], fAny[uInt]) for uInt in range(max(len(tAny), len(fAny))))
+        if isinstance(tAny, tuple) and isinstance(fAny, tuple):
+            return tuple(self.IF(bBit, tAny[uInt], fAny[uInt]) for uInt in range(max(len(tAny), len(fAny))))
         # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f)) # generate more constraints but faster to compile
-        return self.ADD(self.MUL(b, self.SUB(t, f)), f)
-    def GETBYKEY(self, Value, iKey):
+        return self.ADD(self.MUL(bBit, self.SUB(tAny, fAny)), fAny)
+    def GETBYKEY(self, lAny, kKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
         # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
-        if isinstance(Value, dict):
-            if all(isinstance(V, dict) for V in Value.values()):
-                return dict((k, self.GETBYKEY({K: V[k] for K, V in Value.items()}, iKey)) for k in set.union(*map(set, Value.values())))
-            if all(isinstance(V, list) for V in Value.values()):
-                return list(self.GETBYKEY({K: V[k] for K, V in Value.items()}, iKey) for k in range(max(map(len, Value.values()))))
-            if all(isinstance(V, tuple) for V in Value.values()):
-                return tuple(self.GETBYKEY({K: V[k] for K, V in Value.items()}, iKey) for k in range(max(map(len, Value.values()))))
-        if isinstance(Value, list):
-            if all(isinstance(V, dict) for V in Value):
-                return dict((k, self.GETBYKEY([V[k] for V in Value], iKey)) for k in set.union(*map(set, Value)))
-            if all(isinstance(V, list) for V in Value):
-                return list(self.GETBYKEY([V[k] for V in Value], iKey) for k in range(max(map(len, Value))))
-            if all(isinstance(V, tuple) for V in Value):
-                return tuple(self.GETBYKEY([V[k] for V in Value], iKey) for k in range(max(map(len, Value))))
-        return self.SUM(self.MUL(iKey[K], Value[K]) for K in iKey)
-    def SETBYKEY(self, v, Value, *iKeys, c = 1):
+        if isinstance(lAny, dict):
+            if all(isinstance(lBit, dict) for lBit in lAny.values()):
+                return dict((uInt, self.GETBYKEY({lInt: lBit[uInt] for lInt, lBit in lAny.items()}, kKey)) for uInt in set.union(*map(set, lAny.values())))
+            if all(isinstance(lBit, list) for lBit in lAny.values()):
+                return list(self.GETBYKEY({lInt: lBit[uInt] for lInt, lBit in lAny.items()}, kKey) for uInt in range(max(map(len, lAny.values()))))
+            if all(isinstance(lBit, tuple) for lBit in lAny.values()):
+                return tuple(self.GETBYKEY({lInt: lBit[uInt] for lInt, lBit in lAny.items()}, kKey) for uInt in range(max(map(len, lAny.values()))))
+        if isinstance(lAny, list):
+            if all(isinstance(lBit, dict) for lBit in lAny):
+                return dict((uInt, self.GETBYKEY([lBit[uInt] for lBit in lAny], kKey)) for uInt in set.union(*map(set, lAny)))
+            if all(isinstance(lBit, list) for lBit in lAny):
+                return list(self.GETBYKEY([lBit[uInt] for lBit in lAny], kKey) for uInt in range(max(map(len, lAny))))
+            if all(isinstance(lBit, tuple) for lBit in lAny):
+                return tuple(self.GETBYKEY([lBit[uInt] for lBit in lAny], kKey) for uInt in range(max(map(len, lAny))))
+        return self.SUM(self.MUL(kKey[kInt], lAny[kInt]) for kInt in kKey)
+    def SETBYKEY(self, vAny, lAny, *kKes, cBit = 0x01):
         # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return a new
         # (multi-dimensional) list or dictionary with the value set.
         # For example, SETBYKEY(5, {2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}, {0: 0, 1: 1}) means to set the value
         # of {2: [1, 2], 3: [3, 4]}[2][1] to 5, so the result will be {2: [1, 5], 3: [3, 4]}.
-        if len(iKeys) == 0:
-            return self.IF(c, v, Value)
-        iKey, *iKeys = iKeys
-        if isinstance(Value, dict):
-            return {K: self.SETBYKEY(v, V, *iKeys, c = self.AND(c, iKey[K])) for K, V in Value.items()}
-        if isinstance(Value, list):
-            return [self.SETBYKEY(v, V, *iKeys, c = self.AND(c, iKey[K])) for K, V in enumerate(Value)]
+        if len(kKes) == 0:
+            return self.IF(cBit, vAny, lAny)
+        kKey, *kKes = kKes
+        if isinstance(lAny, dict):
+            return {lInt: self.SETBYKEY(vAny, lBit, *kKes, cBit = self.AND(cBit, kKey[lInt])) for lInt, lBit in lAny.items()}
+        if isinstance(lAny, list):
+            return [self.SETBYKEY(vAny, lBit, *kKes, cBit = self.AND(cBit, kKey[lInt])) for lInt, lBit in enumerate(lAny)]
     # compare operations on galios field elements
-    def GE(self, x, y, BLEN, msg = 'GE compare failed'): # 0 <= x - y < 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(x, y)), BLEN + 1, msg = msg)[BLEN]
-    def LE(self, x, y, BLEN, msg = 'LE compare failed'): # 0 <= y - x < 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(y, x)), BLEN + 1, msg = msg)[BLEN]
-    def GT(self, x, y, BLEN, msg = 'GT compare failed'): # 0 < x - y <= 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(x, y), 1)), BLEN + 1, msg = msg)[BLEN]
-    def LT(self, x, y, BLEN, msg = 'LT compare failed'): # 0 < y - x <= 2 ** BLEN
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(y, x), 1)), BLEN + 1, msg = msg)[BLEN]
+    def GE(self, xGal, yGal, bLen, msg = 'GE compare failed'): # 0x00 <= xGal - yGal < 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(xGal, yGal)), bLen + 1, msg = msg)[bLen]
+    def LE(self, xGal, yGal, bLen, msg = 'LE compare failed'): # 0x00 <= yGal - xGal < 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(yGal, xGal)), bLen + 1, msg = msg)[bLen]
+    def GT(self, xGal, yGal, bLen, msg = 'GT compare failed'): # 0x00 < xGal - yGal <= 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(xGal, yGal), 0x01)), bLen + 1, msg = msg)[bLen]
+    def LT(self, xGal, yGal, bLen, msg = 'LT compare failed'): # 0x00 < yGal - xGal <= 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(yGal, xGal), 0x01)), bLen + 1, msg = msg)[bLen]
     # assertion operations on galios field elements
-    def ASSERT_GE(self, x, y, BLEN, *, msg = 'GE assertion failed'): # assert 0 <= x - y < 2 ** BLEN
-        return self.BINARY(self.SUB(x, y), BLEN, msg = msg)
-    def ASSERT_LE(self, x, y, BLEN, *, msg = 'LE assertion failed'): # assert 0 <= y - x < 2 ** BLEN
-        return self.BINARY(self.SUB(y, x), BLEN, msg = msg)
-    def ASSERT_GT(self, x, y, BLEN, *, msg = 'GT assertion failed'): # assert 0 < x - y <= 2 ** BLEN
-        return self.BINARY(self.SUB(self.SUB(x, y), 1), BLEN, msg = msg)
-    def ASSERT_LT(self, x, y, BLEN, *, msg = 'LT assertion failed'): # assert 0 < y - x <= 2 ** BLEN
-        return self.BINARY(self.SUB(self.SUB(y, x), 1), BLEN, msg = msg)
-    def ASSERT_EQ(self, x, y, *, msg = 'EQ assertion failed'):
-        self.MKGATE(1, x, y, msg = msg)
-    def ASSERT_NE(self, x, y, *, msg = 'NE assertion failed'):
-        self.DIV(1, self.SUB(x, y), msg = msg)
-    def ASSERT_ISBOOL(self, x, *, msg = 'ISBOOL assertion failed'):
-        self.MKGATE(x, x, x, msg = msg)
+    def ASSERT_GE(self, xGal, yGal, bLen, *, msg = 'GE assertion failed'): # assert 0x00 <= xGal - yGal < 0x02 ** bLen
+        return self.BINARY(self.SUB(xGal, yGal), bLen, msg = msg)
+    def ASSERT_LE(self, xGal, yGal, bLen, *, msg = 'LE assertion failed'): # assert 0x00 <= yGal - xGal < 0x02 ** bLen
+        return self.BINARY(self.SUB(yGal, xGal), bLen, msg = msg)
+    def ASSERT_GT(self, xGal, yGal, bLen, *, msg = 'GT assertion failed'): # assert 0x00 < xGal - yGal <= 0x02 ** bLen
+        return self.BINARY(self.SUB(self.SUB(xGal, yGal), 0x01), bLen, msg = msg)
+    def ASSERT_LT(self, xGal, yGal, bLen, *, msg = 'LT assertion failed'): # assert 0x00 < yGal - xGal <= 0x02 ** bLen
+        return self.BINARY(self.SUB(self.SUB(yGal, xGal), 0x01), bLen, msg = msg)
+    def ASSERT_EQ(self, xGal, yGal, *, msg = 'EQ assertion failed'):
+        self.MKGATE(0x01, xGal, yGal, msg = msg)
+    def ASSERT_NE(self, xGal, yGal, *, msg = 'NE assertion failed'):
+        self.DIV(0x01, self.SUB(xGal, yGal), msg = msg)
+    def ASSERT_ISBOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
+        self.MKGATE(xGal, xGal, xGal, msg = msg)
     # bitwise operations on binary lists
-    def ROTL(self, xBin, NROT):
-        NROT = -NROT % len(xBin)
-        return xBin[NROT:] + xBin[:NROT]
-    def ROTR(self, xBin, NROT):
-        NROT = +NROT % len(xBin)
-        return xBin[NROT:] + xBin[:NROT]
+    def ROTL(self, xBin, rLen):
+        rLen = -rLen % len(xBin)
+        return xBin[rLen:] + xBin[:rLen]
+    def ROTR(self, xBin, rLen):
+        rLen = +rLen % len(xBin)
+        return xBin[rLen:] + xBin[:rLen]
     def BITNOT(self, xBin):
-        return [self.NOT(b) for b in xBin]
+        return [self.NOT(xBit) for xBit in xBin]
     def BITAND(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
-        return [self.AND(a, b) for a, b in zip(xBin, yBin)]
+        return [self.AND(xBit, yBit) for xBit, yBit in zip(xBin, yBin)]
     def BITOR(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
-        return [self.OR(a, b) for a, b in zip(xBin, yBin)]
+        return [self.OR(xBit, yBit) for xBit, yBit in zip(xBin, yBin)]
     def BITXOR(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
-        return [self.XOR(a, b) for a, b in zip(xBin, yBin)]
+        return [self.XOR(xBit, yBit) for xBit, yBit in zip(xBin, yBin)]
     # arithmetic operations on binary lists
-    def BINADD(self, xBin, yBin, c = 0):
+    def BINADD(self, xBin, yBin, cBit = 0x00):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        zBin = self.BINARY(self.ADD(self.GALOIS(xBin), self.ADD(self.GALOIS(self.ADD(0, b) for b in yBin), self.ADD(0, c))), BLEN + 1)
-        return zBin[:BLEN], self.ADD(0, zBin[BLEN])
-    def BINSUB(self, xBin, yBin, c = 0):
+        bLen = max(len(xBin), len(yBin))
+        zBin = self.BINARY(self.ADD(self.GALOIS(xBin), self.ADD(self.GALOIS(self.ADD(0x00, bBit) for bBit in yBin), self.ADD(0x00, cBit))), bLen + 1)
+        return zBin[:bLen], self.ADD(0x00, zBin[bLen])
+    def BINSUB(self, xBin, yBin, cBit = 0x00):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        zBin = self.BINARY(self.ADD(self.GALOIS(xBin), self.ADD(self.GALOIS(self.SUB(1, b) for b in yBin), self.SUB(1, c))), BLEN + 1)
-        return zBin[:BLEN], self.SUB(1, zBin[BLEN])
+        bLen = max(len(xBin), len(yBin))
+        zBin = self.BINARY(self.ADD(self.GALOIS(xBin), self.ADD(self.GALOIS(self.SUB(0x01, bBit) for bBit in yBin), self.SUB(0x01, cBit))), bLen + 1)
+        return zBin[:bLen], self.SUB(0x01, zBin[bLen])
     def BINMUL(self, xBin, yBin, cBin = [], dBin = []):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        assert len(cBin) <= BLEN
-        assert len(dBin) <= BLEN
-        zBin = self.BINARY(self.ADD(self.MUL(self.GALOIS(xBin), self.GALOIS(yBin)), self.ADD(self.GALOIS(cBin), self.GALOIS(dBin))), BLEN * 2)
-        return zBin[:BLEN], zBin[BLEN:]
+        bLen = max(len(xBin), len(yBin))
+        assert len(cBin) <= bLen
+        assert len(dBin) <= bLen
+        zBin = self.BINARY(self.ADD(self.MUL(self.GALOIS(xBin), self.GALOIS(yBin)), self.ADD(self.GALOIS(cBin), self.GALOIS(dBin))), bLen * 2)
+        return zBin[:bLen], zBin[bLen:]
     def BINDIVMOD(self, xBin, yBin, *, msg = 'binary divmod error'):
         # Division and modulo operations on binary lists.
-        QLEN = len(xBin)
-        RLEN = len(yBin)
-        x = self.GALOIS(xBin)
-        y = self.GALOIS(yBin)
-        if x == 0:
-            return [0] * QLEN, [0] * RLEN
-        if y == 0:
+        qLen = len(xBin)
+        rLen = len(yBin)
+        xGal = self.GALOIS(xBin)
+        yGal = self.GALOIS(yBin)
+        if xGal == 0x00:
+            return [0x00] * qLen, [0x00] * rLen
+        if yGal == 0x00:
             raise ZeroDivisionError
-        if isinstance(x, int) and isinstance(y, int):
-            assert 0 <= x // y < 2 ** QLEN, msg
-            assert 0 <= x % y < 2 ** RLEN, msg
-            return [x // y >> I & 1 for I in range(QLEN)], [x % y >> I & 1 for I in range(RLEN)]
-        if isinstance(x, int):
-            x = Var({0: x})
-        if isinstance(y, int):
-            y = Var({0: y})
-        q = self.MKWIRE(lambda getw, args: getw(x) // getw(y))
-        r = self.MKWIRE(lambda getw, args: getw(x) % getw(y))
-        self.MKGATE(q, y, self.SUB(x, r), msg = msg) # assert y * q == x - r
-        qBin = self.ASSERT_GE(q, 0, QLEN, msg = msg)
-        rBin = self.ASSERT_GE(r, 0, RLEN, msg = msg)
-        _Bin = self.ASSERT_LT(r, y, RLEN, msg = msg)
+        if isinstance(xGal, int) and isinstance(yGal, int):
+            assert 0x00 <= xGal // yGal < 0x02 ** qLen, msg
+            assert 0x00 <= xGal % yGal < 0x02 ** rLen, msg
+            return [xGal // yGal >> iLen & 0x01 for iLen in range(qLen)], [xGal % yGal >> iLen & 0x01 for iLen in range(rLen)]
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
+        if isinstance(yGal, int):
+            yGal = Var({0: yGal})
+        qGal = self.MKWIRE(lambda getw, args: getw(xGal) // getw(yGal))
+        rGal = self.MKWIRE(lambda getw, args: getw(xGal) % getw(yGal))
+        self.MKGATE(qGal, yGal, self.SUB(xGal, rGal), msg = msg) # assert y * q == x - r
+        qBin = self.ASSERT_GE(qGal, 0x00, qLen, msg = msg)
+        rBin = self.ASSERT_GE(rGal, 0x00, rLen, msg = msg)
+        _Bin = self.ASSERT_LT(rGal, yGal, rLen, msg = msg)
         return qBin, rBin
     def BINPOW(self, xBin, nBin):
-        BLEN = len(xBin)
-        b, *nBin = nBin
-        rBin = self.IF(b, xBin, self.BINARY(1, BLEN))
-        for b in nBin:
+        bLen = len(xBin)
+        nBit, *nBin = nBin
+        rBin = self.IF(nBit, xBin, self.BINARY(0x01, bLen))
+        for nBit in nBin:
             xBin = self.BINMUL(xBin, xBin)[0]
-            kBin = self.IF(b, xBin, self.BINARY(1, BLEN))
+            kBin = self.IF(nBit, xBin, self.BINARY(0x01, bLen))
             rBin = self.BINMUL(rBin, kBin)[0]
         return rBin
-    def BINSUM(self, List, c = 0): # c < len(List)
+    def BINSUM(self, List, cGal = 0x00): # c < len(List)
         # BINSUM generates less constraints than BINADD when their are lots of binary numbers to add.
         # assert len(set(map(len, List))) == 1
-        BLEN = max(map(len, List))
-        return self.BINARY(self.SUM(map(self.GALOIS, List), c), BLEN + (len(List) - 1).bit_length())[:BLEN]
+        bLen = max(map(len, List))
+        return self.BINARY(self.SUM(map(self.GALOIS, List), cGal), bLen + (len(List) - 1).bit_length())[:bLen]
     # compare operations on binary lists
     def BINGE(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.GALOIS(xBin), self.GALOIS(yBin))), BLEN + 1)[BLEN]
+        bLen = max(len(xBin), len(yBin))
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.GALOIS(xBin), self.GALOIS(yBin))), bLen + 1)[bLen]
     def BINLE(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.GALOIS(yBin), self.GALOIS(xBin))), BLEN + 1)[BLEN]
+        bLen = max(len(xBin), len(yBin))
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.GALOIS(yBin), self.GALOIS(xBin))), bLen + 1)[bLen]
     def BINGT(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 1)), BLEN + 1)[BLEN]
+        bLen = max(len(xBin), len(yBin))
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 0x01)), bLen + 1)[bLen]
     def BINLT(self, xBin, yBin):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        return self.BINARY(self.ADD(2 ** BLEN, self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 1)), BLEN + 1)[BLEN]
+        bLen = max(len(xBin), len(yBin))
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 0x01)), bLen + 1)[bLen]
     # assertion operations on binary lists
     def ASSERT_BINGE(self, xBin, yBin, *, msg = 'BINGE assertion failed'):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), BLEN, msg = msg)
+        bLen = max(len(xBin), len(yBin))
+        self.BINARY(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), bLen, msg = msg)
     def ASSERT_BINLE(self, xBin, yBin, *, msg = 'BINLE assertion failed'):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), BLEN, msg = msg)
+        bLen = max(len(xBin), len(yBin))
+        self.BINARY(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), bLen, msg = msg)
     def ASSERT_BINGT(self, xBin, yBin, *, msg = 'BINGT assertion failed'):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 1), BLEN, msg = msg)
+        bLen = max(len(xBin), len(yBin))
+        self.BINARY(self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 0x01), bLen, msg = msg)
     def ASSERT_BINLT(self, xBin, yBin, *, msg = 'BINLT assertion failed'):
         # assert len(xBin) == len(yBin)
-        BLEN = max(len(xBin), len(yBin))
-        self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 1), BLEN, msg = msg)
+        bLen = max(len(xBin), len(yBin))
+        self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 0x01), bLen, msg = msg)
     def PARAM(self, name, public = False):
         # Add an input parameter to the circuit, the value of the parameter can be set when calling the prove method.
         return self.MKWIRE(lambda getw, args: args[name], name if public else None)
-    def REVEAL(self, x, name = None, *, msg = 'reveal error'):
+    def REVEAL(self, xGal, name = None, *, msg = 'reveal error'):
         # Make a variable public.
-        if isinstance(x, int):
-            x = Var({0: x})
-        r = self.MKWIRE(lambda getw, args: getw(x), name)
-        self.ASSERT_EQ(x, r, msg = msg)
-        return r
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
+        rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
+        self.ASSERT_EQ(xGal, rGal, msg = msg)
+        return rGal
 # check the type of a value
 def isgal(x):
     return isinstance(x, (int, Var))
@@ -519,11 +519,11 @@ class Compiler(ast.NodeVisitor, Assembly):
             'range': lambda *args: range(*map(asint, args)),
             'log': lambda fmt, *args: print(fmt.format(*map(asint, args))),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
-            'b8':  lambda x: (x + [0] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
-            'b16': lambda x: (x + [0] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
-            'b32': lambda x: (x + [0] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
-            'b64': lambda x: (x + [0] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0] * asint(n))[:n] if isbin(x) else self.BINARY(asgal(x), asint(n)),
+            'b8':  lambda x: (x + [0x00] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
+            'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
+            'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
+            'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
+            'bin': lambda x, n: (x + [0x00] * asint(n))[:n] if isbin(x) else self.BINARY(asgal(x), asint(n)),
             'private': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt),
             'public': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt, public = True),
             'reveal': lambda x, fmt, *args: self.REVEAL(self.GALOIS(x) if isbin(x) else asgal(x), fmt.format(*map(asint, args)) if args else fmt),
@@ -667,9 +667,9 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Assert(self, node):
         test = self.visit(node.test)
         if node.msg is None:
-            self.ASSERT_NE(0, asgal(test))
+            self.ASSERT_NE(0x00, asgal(test))
         else:
-            self.ASSERT_NE(0, asgal(test), msg = self.visit(node.msg))
+            self.ASSERT_NE(0x00, asgal(test), msg = self.visit(node.msg))
         return None, None
     def visit_FunctionDef(self, node):
         def_stack = self.stack
@@ -763,15 +763,15 @@ class Compiler(ast.NodeVisitor, Assembly):
         # use * to represent negation (except for the first element)
         # e.g. {a, *b, c, *d, e} represents a - b + c - d + e
         elt, *elts = node.elts
-        negs = 0
+        negs = 0x00
         args = [asbin(self.visit(elt))]
         for elt in elts:
             if isinstance(elt, ast.Starred):
-                negs += 1
+                negs += 0x01
                 args.append(self.BITNOT(asbin(self.visit(elt.value))))
             else:
                 args.append(asbin(self.visit(elt)))
-        return self.BINSUM(args, c = negs)
+        return self.BINSUM(args, cGal = negs)
     def visit_Constant(self, node):
         if isinstance(node.value, int):
             return node.value % P
@@ -815,24 +815,24 @@ class Compiler(ast.NodeVisitor, Assembly):
         if isinstance(node.op, ast.Not):
             return self.NOT(asgal(operand))
         if isinstance(node.op, ast.UAdd):
-            return self.ADD(0, asgal(operand))
+            return self.ADD(0x00, asgal(operand))
         if isinstance(node.op, ast.USub):
-            return self.SUB(0, asgal(operand))
+            return self.SUB(0x00, asgal(operand))
         raise SyntaxError('unsupported unary operation')
     def visit_BoolOp(self, node):
         if isinstance(node.op, ast.And):
-            result = 1
+            result = 0x01
             for value in node.values:
                 result = self.AND(result, asgal(self.visit(value)))
             return result
         if isinstance(node.op, ast.Or):
-            result = 0
+            result = 0x00
             for value in node.values:
                 result = self.OR(result, asgal(self.visit(value)))
             return result
         raise SyntaxError('unsupported boolean operation')
     def visit_Compare(self, node):
-        result = 1
+        result = 0x01
         left = self.visit(node.left)
         for op, right in zip(node.ops, map(self.visit, node.comparators)):
             if isinstance(op, ast.Eq):
