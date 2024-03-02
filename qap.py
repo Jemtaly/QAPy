@@ -6,7 +6,7 @@ import random
 import pypbc
 import multiprocessing
 # elliptic curve parameters for the SS512 curve, which is used to construct the bilinear pairing
-stored_params = (
+params = pypbc.Parameters(
     "type a\n"
     "q 8780710799663312522437781984754049815806883199414208211028653399266475630880222957078625179422662221423155858769582317459277713367317481324925129998224791\n"
     "h 12016012264891146079388821366740534204802954401251311822919615131047207289359704531102844802183906537786776\n"
@@ -16,7 +16,6 @@ stored_params = (
     "sign1 1\n"
     "sign0 1\n"
 )
-params = pypbc.Parameters(param_string = stored_params)
 pairing = pypbc.Pairing(params)
 G1 = pypbc.Element.random(pairing, pypbc.G1)
 G2 = pypbc.Element.random(pairing, pypbc.G2)
@@ -30,7 +29,7 @@ def dot_prod_parallel(group, G, Z, c):
     with multiprocessing.Pool() as pool:
         return sum((pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for g, z in zip(G, Z)))), c)
 # the order of the SS512 curve
-P = 730750818665451621361119245571504901405976559617
+P = pairing.order()
 # find the largest K such that P - 1 is divisible by 2 ** K, and Z is a primitive root of unity, they are used to perform FFT
 K = 1
 while (P - 1) % (K * 2) == 0:
