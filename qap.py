@@ -154,8 +154,8 @@ class Assembly:
     # the following methods are used to construct the arithmetic circuits
     def MKWIRE(self, func, name = None):
         # Add a new variable that defined by the given function to the witness vector.
-        # For example, x = MKWIRE(lambda getw, args: getw(w0) * getw(w1) % P) will add a new variable x
-        # to the witness vector, and its value is the product of the values of w0 and w1.
+        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % P) will add a new variable x
+        # to the witness vector, and its value is the product of the values of y and z.
         i = len(self.wires)
         self.wires.append(func)
         # if name is specified, the variable is public
@@ -182,14 +182,14 @@ class Assembly:
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         zGal = Var({k: v for k in xGal.keys() | yGal.keys() if (v := (xGal.get(k, 0x00) + yGal.get(k, 0x00)) % P)})
-        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal
+        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
     def SUB(self, xGal, yGal):
         if isinstance(yGal, int):
             yGal = Var({0: yGal})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         zGal = Var({k: v for k in xGal.keys() | yGal.keys() if (v := (xGal.get(k, 0x00) - yGal.get(k, 0x00)) % P)})
-        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal
+        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
         if xGal == 0x00 or yGal == 0x00:
             return 0x00
@@ -297,7 +297,7 @@ class Assembly:
             return list(self.IF(bBit, tAny[zInt], fAny[zInt]) for zInt in range(max(len(tAny), len(fAny))))
         if isinstance(tAny, tuple) and isinstance(fAny, tuple):
             return tuple(self.IF(bBit, tAny[zInt], fAny[zInt]) for zInt in range(max(len(tAny), len(fAny))))
-        # return self.ADD(self.MUL(b, t), self.MUL(self.NOT(b), f)) # generate more constraints but faster to compile
+        # return self.ADD(self.MUL(bBit, tAny), self.MUL(self.NOT(bBit), fAny)) # generate more constraints but faster to compile
         return self.ADD(self.MUL(bBit, self.SUB(tAny, fAny)), fAny)
     def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
@@ -464,7 +464,7 @@ class Assembly:
     def PARAM(self, name, public = False):
         # Add an input parameter to the circuit, the value of the parameter can be set when calling the prove method.
         return self.MKWIRE(lambda getw, args: args[name], name if public else None)
-    def REVEAL(self, xGal, name = None, *, msg = 'reveal error'):
+    def REVEAL(self, name, xGal, *, msg = 'reveal error'):
         # Make a variable public.
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
@@ -489,6 +489,10 @@ def asbin(x):
     if isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x):
         return x
     raise TypeError('expected a binary')
+def asstr(x):
+    if isinstance(x, str):
+        return x
+    raise TypeError('expected a string')
 # get the shape of a value (binary list will be treated as a list of integers)
 def shape(x):
     if isinstance(x, (int, Var)):
@@ -516,16 +520,17 @@ class Compiler(ast.NodeVisitor, Assembly):
         Assembly.__init__(self)
         self.stack = [{
             'range': lambda *args: range(*map(asint, args)),
-            'log': lambda fmt, *args: print(fmt.format(*map(asint, args))),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
             'b8':  lambda x: (x + [0x00] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
             'bin': lambda x, n: (x + [0x00] * asint(n))[:n] if isbin(x) else self.BINARY(asgal(x), asint(n)),
-            'private': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt),
-            'public': lambda fmt, *args: self.PARAM(fmt.format(*map(asint, args)) if args else fmt, public = True),
-            'reveal': lambda x, fmt, *args: self.REVEAL(self.GALOIS(x) if isbin(x) else asgal(x), fmt.format(*map(asint, args)) if args else fmt),
+            'fmt': lambda s, *args: asstr(s).format(*map(asint, args)),
+            'log': lambda s: print(asstr(s)),
+            'private': lambda s: self.PARAM(asstr(s)),
+            'public': lambda s: self.PARAM(asstr(s), public = True),
+            'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
         }] # the stack is used to store the local variables
     def visit_Module(self, node):
         for stmt in node.body:
@@ -668,7 +673,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         if node.msg is None:
             self.ASSERT_NE(0x00, asgal(test))
         else:
-            self.ASSERT_NE(0x00, asgal(test), msg = self.visit(node.msg))
+            self.ASSERT_NE(0x00, asgal(test), msg = asstr(self.visit(node.msg)))
         return None, None
     def visit_FunctionDef(self, node):
         def_stack = self.stack
@@ -774,8 +779,6 @@ class Compiler(ast.NodeVisitor, Assembly):
     def visit_Constant(self, node):
         if isinstance(node.value, int):
             return node.value % P
-        if isinstance(node.value, bool):
-            return int(node.value)
         if isinstance(node.value, str):
             return node.value
         raise SyntaxError('invalid constant')
@@ -922,10 +925,10 @@ if __name__ == '__main__':
             "    b32(0x7380166f), b32(0x4914b2b9), b32(0x172442d7), b32(0xda8a0600),\n"
             "    b32(0xa96f30bc), b32(0x163138aa), b32(0xe38dee4d), b32(0xb0fb0e4e),\n"
             "]\n"
-            "W = [b32(private('W[{:#04x}]', i)) for i in range(16)]\n"
+            "W = [b32(private(fmt('W[{:#04x}]', i))) for i in range(16)]\n"
             "V = compress(V, W)\n"
             "for i in range(8):\n"
-            "    reveal(V[i], 'V[{:#04x}]', i)\n"
+            "    reveal(fmt('V[{:#04x}]', i), V[i])\n"
         ))
     print('Number of gates:', asm.gate_count())
     print('Number of wires:', asm.wire_count())
