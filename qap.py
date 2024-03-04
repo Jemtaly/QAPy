@@ -44,16 +44,8 @@ class Var:
     # their coefficients, for example, x = w0 + 5 * w2 + 7 * w3 can be represented as {0: 1, 2: 5, 3: 7},
     # note that the variables with coefficient 0 are always omitted.
     # Constants are represented by the integer itself.
-    def __init__(self, args):
-        self.args = args
-    def items(self):
-        return self.args.items()
-    def keys(self):
-        return self.args.keys()
-    def values(self):
-        return self.args.values()
-    def get(self, key, default):
-        return self.args.get(key, default)
+    def __init__(self, data):
+        self.data = data
 class Assembly:
     # The Assembly class is used to construct the arithmetic circuits, it provides a set of methods to
     # create and manipulate the variables, and to perform arithmetic operations on them. The arithmetic
@@ -63,6 +55,7 @@ class Assembly:
         self.gates = [] # the constraints in the circuit
         self.wires = [lambda getw, args: 1] # the functions that represent the variables, used to generate the witness vector
         self.stmts = {0: 'unit'} # the public variables in the witness, keys are the indices of the variables in the witness vector
+        self.enums = {} # memoization of the enum values
     def gate_count(self):
         return len(self.gates)
     def wire_count(self):
@@ -81,11 +74,11 @@ class Assembly:
         BxM = [0x00 for _ in range(M)]
         CxM = [0x00 for _ in range(M)]
         for X, (aM, bM, cM, msg) in zip(XI, self.gates):
-            for m, a in aM.items():
+            for m, a in aM.data.items():
                 AxM[m] += a * X
-            for m, b in bM.items():
+            for m, b in bM.data.items():
                 BxM[m] += b * X
-            for m, c in cM.items():
+            for m, c in cM.data.items():
                 CxM[m] += c * X
         Zx = pow(x, I, P) - 0x01
         Γ = pow(γ, P - 2, P)
@@ -112,7 +105,7 @@ class Assembly:
         R = pow(T, K // I, P) # primitive I-th root of unity, used to perform FFT
         S = pow(T, K // J, P) # primitive J-th root of unity, used to convert the FFT result to the coset
         wM = []
-        getw = lambda xM: sum(wM[m] * x for m, x in xM.items()) % P
+        getw = lambda xM: sum(wM[m] * x for m, x in xM.data.items()) % P
         for func in self.wires:
             wM.append(func(getw, args))
         uU = [wM[m] for m in                      self.stmts]
@@ -181,24 +174,24 @@ class Assembly:
             yGal = Var({0: yGal})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
-        zGal = Var({k: v for k in xGal.keys() | yGal.keys() if (v := (xGal.get(k, 0x00) + yGal.get(k, 0x00)) % P)})
-        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
+        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % P)})
+        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
     def SUB(self, xGal, yGal):
         if isinstance(yGal, int):
             yGal = Var({0: yGal})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
-        zGal = Var({k: v for k in xGal.keys() | yGal.keys() if (v := (xGal.get(k, 0x00) - yGal.get(k, 0x00)) % P)})
-        return zGal.get(0, 0x00) if zGal.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
+        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % P)})
+        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
         if xGal == 0x00 or yGal == 0x00:
             return 0x00
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * yGal % P
         if isinstance(yGal, int):
-            return Var({i: m * yGal % P for i, m in xGal.items()})
+            return Var({i: m * yGal % P for i, m in xGal.data.items()})
         if isinstance(xGal, int):
-            return Var({i: m * xGal % P for i, m in yGal.items()})
+            return Var({i: m * xGal % P for i, m in yGal.data.items()})
         zGal = self.MKWIRE(lambda getw, args: getw(xGal) * getw(yGal) % P)
         self.MKGATE(xGal, yGal, zGal, msg = msg)
         return zGal
@@ -211,7 +204,7 @@ class Assembly:
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * pow(yGal, P - 2, P) % P
         if isinstance(yGal, int):
-            return Var({i: m * pow(yGal, P - 2, P) % P for i, m in xGal.items()})
+            return Var({i: m * pow(yGal, P - 2, P) % P for i, m in xGal.data.items()})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), P - 2, P) % P)
@@ -230,23 +223,6 @@ class Assembly:
             rGal = self.ADD(rGal, iGal)
         return rGal
     # type conversion operations on variables
-    def ENUM(self, xGal, kSet, *, msg = 'enumerization error'):
-        # Convert x to an enum value, for example, ENUM(3, {1, 3, 5, 7}) will return {1: 0, 3: 1, 5: 0, 7: 0}
-        # and ENUM(2, {1, 3, 5, 7}) will raise an error because 2 is not in the enum set.
-        if isinstance(xGal, int):
-            xKey = {kInt: 0x01 - pow(xGal - kInt, P - 1, P) for kInt in kSet}
-            assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
-            return xKey
-        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 - pow(getw(xGal) - kInt, P - 1, P))
-        xKey = {kInt: 0x00 for kInt in kSet}
-        for kInt in kSet:
-            xBit = xKey[kInt] = bind(kInt)
-            self.ASSERT_ISBOOL(xBit)
-        tGal = self.SUM(self.MUL(xBit, kInt) for kInt, xBit in xKey.items())
-        eGal = self.SUM(self.MUL(xBit, 0x01) for kInt, xBit in xKey.items())
-        self.ASSERT_EQ(xGal, tGal, msg = msg)
-        self.ASSERT_EQ(0x01, eGal, msg = msg)
-        return xKey
     def BINARY(self, xGal, xLen, *, msg = 'binarization error'):
         # Convert x to a binary list with the given bit length, for example, BINARY(5, 3) will return [1, 0, 1]
         # and BINARY(5, 2) will raise an error because 5 is too large for 2 bits. Note that the bit length
@@ -266,57 +242,61 @@ class Assembly:
         tGal = self.SUM(self.MUL(xBit, 0x02 ** iLen) for iLen, xBit in enumerate(xBin))
         self.ASSERT_EQ(xGal, tGal, msg = msg)
         return xBin
-    def NEZ(self, xGal, *, msg = 'booleanization error'):
-        # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
-        if isinstance(xGal, int):
-            return pow(xGal, P - 1, P)
-        iGal = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 2, P))
-        rBit = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 1, P))
-        self.MKGATE(rBit, xGal, xGal, msg = msg) # the following constraint ensures that o has to be 1 if x is non-zero
-        self.MKGATE(xGal, iGal, rBit, msg = msg) # the following constraint ensures that o has to be 0 if x is zero
-        return rBit
     def GALOIS(self, xBin):
         # Convert a binary list to an galios field element, for example, GALOIS([1, 0, 1]) will return 5.
         return self.SUM(self.MUL(bBit, 0x02 ** iLen) for iLen, bBit in enumerate(xBin))
-    # logical operations on boolean values
-    def NOT(self, xBit):
-        return self.SUB(0x01, xBit)
-    def AND(self, xBit, yBit):
-        return self.MUL(xBit, yBit)
-    def OR(self, xBit, yBit):
-        return self.SUB(0x01, self.MUL(self.SUB(0x01, xBit), self.SUB(0x01, yBit)))
-    def XOR(self, xBit, yBit):
-        return self.DIV(self.SUB(0x01, self.MUL(self.SUB(0x01, self.MUL(xBit, 0x02)), self.SUB(0x01, self.MUL(yBit, 0x02)))), 0x02)
+    def ENUM(self, xGal, kSet, *, msg = 'enumerization error'):
+        # Convert x to an enum value, for example, ENUM(3, {1, 3, 5, 7}) will return {1: 0, 3: 1, 5: 0, 7: 0}
+        # and ENUM(2, {1, 3, 5, 7}) will raise an error because 2 is not in the enum set.
+        if isinstance(xGal, int):
+            xKey = {kInt: 0x01 - pow(xGal - kInt, P - 1, P) for kInt in kSet}
+            assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
+            return xKey
+        xFrz = tuple(sorted(xGal.data.items()))
+        if (xKey := self.enums.get(kSet, {}).get(xFrz)) is not None:
+            return xKey
+        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 - pow(getw(xGal) - kInt, P - 1, P))
+        xKey = {kInt: 0x00 for kInt in kSet}
+        for kInt in kSet:
+            xBit = xKey[kInt] = bind(kInt)
+            self.ASSERT_ISBOOL(xBit)
+        tGal = self.SUM(self.MUL(xBit, kInt) for kInt, xBit in xKey.items())
+        eGal = self.SUM(self.MUL(xBit, 0x01) for kInt, xBit in xKey.items())
+        self.ASSERT_EQ(xGal, tGal, msg = msg)
+        self.ASSERT_EQ(0x01, eGal, msg = msg)
+        self.enums.setdefault(kSet, {})[xFrz] = xKey # memoization
+        return xKey
     # conditional expression and get/set operations on lists and dictionaries
-    def IF(self, bBit, tAny, fAny):
+    def IF(self, bBit, tItm, fItm):
         # Conditional expression, b is a boolean value, t and f are the true and false branches (can be scalars,
         # (multi-dimensional) lists, dictionaries, or tuples, but should have the same shape).
-        if isinstance(tAny, dict) and isinstance(fAny, dict):
-            return dict((zInt, self.IF(bBit, tAny[zInt], fAny[zInt])) for zInt in tAny.keys() | fAny.keys())
-        if isinstance(tAny, list) and isinstance(fAny, list):
-            return list(self.IF(bBit, tAny[zInt], fAny[zInt]) for zInt in range(max(len(tAny), len(fAny))))
-        if isinstance(tAny, tuple) and isinstance(fAny, tuple):
-            return tuple(self.IF(bBit, tAny[zInt], fAny[zInt]) for zInt in range(max(len(tAny), len(fAny))))
+        if isinstance(tItm, dict):
+            return dict((zInt, self.IF(bBit, tItm[zInt], fItm[zInt])) for zInt in tItm.keys())
+        if isinstance(tItm, list):
+            return list(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
+        if isinstance(tItm, tuple):
+            return tuple(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
         # return self.ADD(self.MUL(bBit, tAny), self.MUL(self.NOT(bBit), fAny)) # generate more constraints but faster to compile
-        return self.ADD(self.MUL(bBit, self.SUB(tAny, fAny)), fAny)
+        return self.ADD(self.MUL(bBit, self.SUB(tItm, fItm)), fItm)
     def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
         # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
         if isinstance(lSpc, dict):
-            if all(isinstance(lItm, dict) for lItm in lSpc.values()):
-                return dict((zInt, self.GETBYKEY({kInt: lItm[zInt] for kInt, lItm in lSpc.items()}, iKey)) for zInt in set.union(*map(set, lSpc.values())))
-            if all(isinstance(lItm, list) for lItm in lSpc.values()):
-                return list(self.GETBYKEY({kInt: lItm[zInt] for kInt, lItm in lSpc.items()}, iKey) for zInt in range(max(map(len, lSpc.values()))))
-            if all(isinstance(lItm, tuple) for lItm in lSpc.values()):
-                return tuple(self.GETBYKEY({kInt: lItm[zInt] for kInt, lItm in lSpc.items()}, iKey) for zInt in range(max(map(len, lSpc.values()))))
+            if isinstance(lSpc[0], dict):
+                return dict((zInt, self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey)) for zInt in lSpc[0].keys())
+            if isinstance(lSpc[0], list):
+                return list(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey) for zInt in range(len(lSpc[0])))
+            if isinstance(lSpc[0], tuple):
+                return tuple(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey) for zInt in range(len(lSpc[0])))
+            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iKey.items())
         if isinstance(lSpc, list):
-            if all(isinstance(lItm, dict) for lItm in lSpc):
-                return dict((zInt, self.GETBYKEY([lItm[zInt] for lItm in lSpc], iKey)) for zInt in set.union(*map(set, lSpc)))
-            if all(isinstance(lItm, list) for lItm in lSpc):
-                return list(self.GETBYKEY([lItm[zInt] for lItm in lSpc], iKey) for zInt in range(max(map(len, lSpc))))
-            if all(isinstance(lItm, tuple) for lItm in lSpc):
-                return tuple(self.GETBYKEY([lItm[zInt] for lItm in lSpc], iKey) for zInt in range(max(map(len, lSpc))))
-        return self.SUM(self.MUL(iKey[kInt], lSpc[kInt]) for kInt in iKey)
+            if isinstance(lSpc[0], dict):
+                return dict((zInt, self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey)) for zInt in lSpc[0].keys())
+            if isinstance(lSpc[0], list):
+                return list(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey) for zInt in range(len(lSpc[0])))
+            if isinstance(lSpc[0], tuple):
+                return tuple(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey) for zInt in range(len(lSpc[0])))
+            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iKey.items())
     def SETBYKEY(self, vItm, lSpc, *iKes, cBit = 0x01):
         # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return a new
         # (multi-dimensional) list or dictionary with the value set.
@@ -326,10 +306,28 @@ class Assembly:
             return self.IF(cBit, vItm, lSpc)
         iKey, *iKes = iKes
         if isinstance(lSpc, dict):
-            return {kInt: self.SETBYKEY(vItm, lItm, *iKes, cBit = self.AND(cBit, iKey[kInt])) for kInt, lItm in lSpc.items()}
+            return {kInt: self.SETBYKEY(vItm, lSpc[kInt], *iKes, cBit = self.AND(cBit, iBit)) for kInt, iBit in iKey.items()}
         if isinstance(lSpc, list):
-            return [self.SETBYKEY(vItm, lItm, *iKes, cBit = self.AND(cBit, iKey[kInt])) for kInt, lItm in enumerate(lSpc)]
+            return [self.SETBYKEY(vItm, lSpc[kInt], *iKes, cBit = self.AND(cBit, iBit)) for kInt, iBit in iKey.items()]
+    # logical operations on boolean values
+    def NOT(self, xBit):
+        return self.SUB(0x01, xBit)
+    def AND(self, xBit, yBit):
+        return self.MUL(xBit, yBit)
+    def OR(self, xBit, yBit):
+        return self.SUB(0x01, self.MUL(self.SUB(0x01, xBit), self.SUB(0x01, yBit)))
+    def XOR(self, xBit, yBit):
+        return self.DIV(self.SUB(0x01, self.MUL(self.SUB(0x01, self.MUL(xBit, 0x02)), self.SUB(0x01, self.MUL(yBit, 0x02)))), 0x02)
     # compare operations on galios field elements
+    def NEZ(self, xGal, *, msg = 'booleanization error'):
+        # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
+        if isinstance(xGal, int):
+            return pow(xGal, P - 1, P)
+        iGal = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 2, P))
+        rBit = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 1, P))
+        self.MKGATE(rBit, xGal, xGal, msg = msg) # the following constraint ensures that o has to be 1 if x is non-zero
+        self.MKGATE(xGal, iGal, rBit, msg = msg) # the following constraint ensures that o has to be 0 if x is zero
+        return rBit
     def GE(self, xGal, yGal, bLen, msg = 'GE compare failed'): # 0x00 <= xGal - yGal < 0x02 ** bLen
         return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(xGal, yGal)), bLen + 1, msg = msg)[bLen]
     def LE(self, xGal, yGal, bLen, msg = 'LE compare failed'): # 0x00 <= yGal - xGal < 0x02 ** bLen
