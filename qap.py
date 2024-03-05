@@ -278,27 +278,27 @@ class Assembly:
             return tuple(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
         # return self.ADD(self.MUL(bBit, tAny), self.MUL(self.NOT(bBit), fAny)) # generate more constraints but faster to compile
         return self.ADD(self.MUL(bBit, self.SUB(tItm, fItm)), fItm)
-    def GETBYKEY(self, lSpc, iGal):
+    def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
         # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
         if isinstance(lSpc, list):
             pItm = lSpc[0]
             if isinstance(pItm, dict):
-                return dict((zInt, self.GETBYKEY([vItm[zInt] for vItm in lSpc], iGal)) for zInt in pItm.keys())
+                return dict((zInt, self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey)) for zInt in pItm.keys())
             if isinstance(pItm, list):
-                return list(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iGal) for zInt in range(len(pItm)))
+                return list(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey) for zInt in range(len(pItm)))
             if isinstance(pItm, tuple):
-                return tuple(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iGal) for zInt in range(len(pItm)))
-            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iGal.items())
+                return tuple(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey) for zInt in range(len(pItm)))
+            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iKey.items())
         if isinstance(lSpc, dict):
             pItm = next(iter(lSpc.values()))
             if isinstance(pItm, dict):
-                return dict((zInt, self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iGal)) for zInt in pItm.keys())
+                return dict((zInt, self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey)) for zInt in pItm.keys())
             if isinstance(pItm, list):
-                return list(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iGal) for zInt in range(len(pItm)))
+                return list(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey) for zInt in range(len(pItm)))
             if isinstance(pItm, tuple):
-                return tuple(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iGal) for zInt in range(len(pItm)))
-            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iGal.items())
+                return tuple(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey) for zInt in range(len(pItm)))
+            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iKey.items())
     def SETBYKEY(self, vItm, lSpc, *iKes, cBit = 0x01):
         # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return a new
         # (multi-dimensional) list or dictionary with the value set.
