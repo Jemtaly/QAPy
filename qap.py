@@ -6,27 +6,29 @@ import random
 import pymcl
 import multiprocessing
 # the BLS12-381 curve parameters
-G1 = pymcl.P
-G2 = pymcl.Q
-P = pymcl.r
+g1 = pymcl.g1
+g2 = pymcl.g2
+ρ = pymcl.r
 # find the largest K such that P - 1 is divisible by 2 ** K, and Z is a primitive root of unity, they are used to perform FFT
 K = 1
-while (P - 1) % (K * 2) == 0:
+while (ρ - 1) % (K * 2) == 0:
     K = K * 2
-for Z in range(2, P):
-    if pow(Z, (P - 1) // 2, P) != 1:
+for Z in range(2, ρ):
+    if pow(Z, (ρ - 1) // 2, ρ) != 1:
         break
-T = pow(Z, (P - 1) // K, P)
+T = pow(Z, (ρ - 1) // K, ρ)
 # scalar multiplication and dot product optimized for parallel execution
 THREADS = None # automatically set to the number of CPU cores
-def worker(Group, b, z):
-    return str(Group(b) * pymcl.Fr(str(z)))
-def scalar_mult_parallel(Group, g, Z):
+def worker(Group, p, z):
+    return str(Group(p) * pymcl.Fr(z))
+def scalar_mult_parallel(P, Zs):
+    Group = type(P)
     with multiprocessing.Pool(THREADS) as pool:
-        return [Group(r) for r in pool.starmap(worker, ((Group, str(g), z) for z in Z))]
-def dot_prod_parallel(Group, G, Z, c):
+        return [Group(q) for q in pool.starmap(worker, ((Group, str(P), str(Z)) for Z in Zs))]
+def dot_prod_parallel(O, Ps, Zs):
+    Group = type(O)
     with multiprocessing.Pool(THREADS) as pool:
-        return sum((Group(r) for r in pool.starmap(worker, ((Group, str(g), z) for g, z in zip(G, Z)))), c)
+        return sum((Group(q) for q in pool.starmap(worker, ((Group, str(P), str(Z)) for P, Z in zip(Ps, Zs)))), O)
 class Var:
     # All variables in a program are linear combinations of the variables in its witness vector, so they
     # can be represented by a dictionary that maps the indices of the variables in the witness vector to
@@ -56,9 +58,9 @@ class Assembly:
         I = 1
         while I < N:
             I = I * 2
-        R = pow(T, K // I, P) # primitive I-th root of unity, used to perform FFT
-        xI = [pow(x, i, P) for i in range(I)]
-        XI = util.ifft(xI, R, P)
+        R = pow(T, K // I, ρ) # primitive I-th root of unity, used to perform FFT
+        xI = [pow(x, i, ρ) for i in range(I)]
+        XI = util.ifft(xI, R, ρ)
         AxM = [0x00 for _ in range(M)]
         BxM = [0x00 for _ in range(M)]
         CxM = [0x00 for _ in range(M)]
@@ -69,20 +71,20 @@ class Assembly:
                 BxM[m] += b * X
             for m, c in cM.data.items():
                 CxM[m] += c * X
-        Zx = pow(x, I, P) - 0x01
-        Γ = pow(γ, -1, P)
-        Δ = pow(δ, -1, P)
-        α1 = G1 * pymcl.Fr(str(α))
-        β1 = G1 * pymcl.Fr(str(β))
-        δ1 = G1 * pymcl.Fr(str(δ))
-        β2 = G2 * pymcl.Fr(str(β))
-        γ2 = G2 * pymcl.Fr(str(γ))
-        δ2 = G2 * pymcl.Fr(str(δ))
-        u1U = scalar_mult_parallel(pymcl.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P for m in                      self.stmts])
-        v1V = scalar_mult_parallel(pymcl.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P for m in range(M) if m not in self.stmts])
-        x1I = scalar_mult_parallel(pymcl.G1, G1, [pow(x, i, P) for i in range(I)])
-        x2I = scalar_mult_parallel(pymcl.G2, G2, [pow(x, i, P) for i in range(I)])
-        y1I = scalar_mult_parallel(pymcl.G1, G1, [pow(x, i, P) * Δ * Zx % P for i in range(I - 1)])
+        Zx = pow(x, I, ρ) - 0x01
+        Γ = pow(γ, -1, ρ)
+        Δ = pow(δ, -1, ρ)
+        α1 = g1 * pymcl.Fr(str(α))
+        β1 = g1 * pymcl.Fr(str(β))
+        δ1 = g1 * pymcl.Fr(str(δ))
+        β2 = g2 * pymcl.Fr(str(β))
+        γ2 = g2 * pymcl.Fr(str(γ))
+        δ2 = g2 * pymcl.Fr(str(δ))
+        u1U = scalar_mult_parallel(g1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % ρ for m in                      self.stmts])
+        v1V = scalar_mult_parallel(g1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % ρ for m in range(M) if m not in self.stmts])
+        x1I = scalar_mult_parallel(g1, [pow(x, i, ρ) for i in range(I)])
+        x2I = scalar_mult_parallel(g2, [pow(x, i, ρ) for i in range(I)])
+        y1I = scalar_mult_parallel(g1, [pow(x, i, ρ) * Δ * Zx % ρ for i in range(I - 1)])
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         M = self.wire_count()
@@ -91,10 +93,10 @@ class Assembly:
         while I < N:
             I = I * 2
         J = I * 2
-        R = pow(T, K // I, P) # primitive I-th root of unity, used to perform FFT
-        S = pow(T, K // J, P) # primitive J-th root of unity, used to convert the FFT result to the coset
+        R = pow(T, K // I, ρ) # primitive I-th root of unity, used to perform FFT
+        S = pow(T, K // J, ρ) # primitive J-th root of unity, used to convert the FFT result to the coset
         wM = []
-        getw = lambda xM: sum(wM[m] * x for m, x in xM.data.items()) % P
+        getw = lambda xM: sum(wM[m] * x for m, x in xM.data.items()) % ρ
         for func in self.wires:
             wM.append(func(getw, args))
         uU = [wM[m] for m in                      self.stmts]
@@ -106,32 +108,32 @@ class Assembly:
             aw = getw(aM)
             bw = getw(bM)
             cw = getw(cM)
-            assert aw * bw % P == cw, msg
+            assert aw * bw % ρ == cw, msg
             awN.append(aw)
             bwN.append(bw)
             cwN.append(cw)
-        AwI = util.ifft(awN + [0x00] * (I - N), R, P)
-        BwI = util.ifft(bwN + [0x00] * (I - N), R, P)
-        CwI = util.ifft(cwN + [0x00] * (I - N), R, P)
-        awI = util.fft([Aw * pow(S, i, P) % P for i, Aw in enumerate(AwI)], R, P) # FFT in coset
-        bwI = util.fft([Bw * pow(S, i, P) % P for i, Bw in enumerate(BwI)], R, P) # FFT in coset
-        cwI = util.fft([Cw * pow(S, i, P) % P for i, Cw in enumerate(CwI)], R, P) # FFT in coset
-        hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
-        HI = [H * pow(S, 0 - i, P) % P for i, H in enumerate(util.ifft(hI, R, P))] # IFFT in coset
+        AwI = util.ifft(awN + [0x00] * (I - N), R, ρ)
+        BwI = util.ifft(bwN + [0x00] * (I - N), R, ρ)
+        CwI = util.ifft(cwN + [0x00] * (I - N), R, ρ)
+        awI = util.fft([Aw * pow(S, i, ρ) % ρ for i, Aw in enumerate(AwI)], R, ρ) # FFT in coset
+        bwI = util.fft([Bw * pow(S, i, ρ) % ρ for i, Bw in enumerate(BwI)], R, ρ) # FFT in coset
+        cwI = util.fft([Cw * pow(S, i, ρ) % ρ for i, Cw in enumerate(CwI)], R, ρ) # FFT in coset
+        hI = [(ρ - 1) // 2 * (aw * bw - cw) % ρ for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
+        HI = [H * pow(S, 0 - i, ρ) % ρ for i, H in enumerate(util.ifft(hI, R, ρ))] # IFFT in coset
         A1 = α1 + δ1 * pymcl.Fr(str(r))
-        A1 = dot_prod_parallel(pymcl.G1, x1I, AwI, A1)
+        A1 = dot_prod_parallel(A1, x1I, AwI)
         B1 = β1 + δ1 * pymcl.Fr(str(s))
-        B1 = dot_prod_parallel(pymcl.G1, x1I, BwI, B1)
+        B1 = dot_prod_parallel(B1, x1I, BwI)
         B2 = β2 + δ2 * pymcl.Fr(str(s))
-        B2 = dot_prod_parallel(pymcl.G2, x2I, BwI, B2)
-        C1 = A1 * pymcl.Fr(str(s)) + B1 * pymcl.Fr(str(r)) - δ1 * pymcl.Fr(str(r * s % P))
-        C1 = dot_prod_parallel(pymcl.G1, y1I, HI, C1)
-        C1 = dot_prod_parallel(pymcl.G1, v1V, vV, C1)
+        B2 = dot_prod_parallel(B2, x2I, BwI)
+        C1 = A1 * pymcl.Fr(str(s)) + B1 * pymcl.Fr(str(r)) - δ1 * pymcl.Fr(str(r * s % ρ))
+        C1 = dot_prod_parallel(C1, y1I, HI)
+        C1 = dot_prod_parallel(C1, v1V, vV)
         return A1, B2, C1, uU
     @staticmethod
     def verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
-        D1 = G1 * pymcl.Fr(str(0))
-        D1 = dot_prod_parallel(pymcl.G1, u1U, uU, D1)
+        D1 = g1 * pymcl.Fr(str(0))
+        D1 = dot_prod_parallel(D1, u1U, uU)
         return pymcl.pairing(A1, B2) == pymcl.pairing(α1, β2) * pymcl.pairing(D1, γ2) * pymcl.pairing(C1, δ2)
     # the following methods are used to construct the arithmetic circuits
     def MKWIRE(self, func, name = None):
@@ -148,7 +150,7 @@ class Assembly:
         # Add a constraint to the circuit, the constraint is represented as a tuple (x, y, z, msg),
         # which means x * y = z, the msg is the error message when the constraint is not satisfied.
         if isinstance(xGal, int) and isinstance(yGal, int) and isinstance(zGal, int):
-            assert xGal * yGal % P == zGal, msg
+            assert xGal * yGal % ρ == zGal, msg
             return
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
@@ -163,25 +165,25 @@ class Assembly:
             yGal = Var({0: yGal})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
-        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % P)})
+        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % ρ)})
         return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
     def SUB(self, xGal, yGal):
         if isinstance(yGal, int):
             yGal = Var({0: yGal})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
-        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % P)})
+        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
         return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
         if xGal == 0x00 or yGal == 0x00:
             return 0x00
         if isinstance(xGal, int) and isinstance(yGal, int):
-            return xGal * yGal % P
+            return xGal * yGal % ρ
         if isinstance(yGal, int):
-            return Var({i: m * yGal % P for i, m in xGal.data.items()})
+            return Var({i: m * yGal % ρ for i, m in xGal.data.items()})
         if isinstance(xGal, int):
-            return Var({i: m * xGal % P for i, m in yGal.data.items()})
-        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * getw(yGal) % P)
+            return Var({i: m * xGal % ρ for i, m in yGal.data.items()})
+        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * getw(yGal) % ρ)
         self.MKGATE(xGal, yGal, zGal, msg = msg)
         return zGal
     def DIV(self, xGal, yGal, *, msg = 'division error'):
@@ -191,12 +193,12 @@ class Assembly:
         if yGal == 0x00:
             raise ZeroDivisionError
         if isinstance(xGal, int) and isinstance(yGal, int):
-            return xGal * pow(yGal, -1, P) % P
+            return xGal * pow(yGal, -1, ρ) % ρ
         if isinstance(yGal, int):
-            return Var({i: m * pow(yGal, -1, P) % P for i, m in xGal.data.items()})
+            return Var({i: m * pow(yGal, -1, ρ) % ρ for i, m in xGal.data.items()})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
-        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), -1, P) % P)
+        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), -1, ρ) % ρ)
         self.MKGATE(zGal, yGal, xGal, msg = msg)
         return zGal
     def POW(self, xGal, nBin):
@@ -217,10 +219,10 @@ class Assembly:
         # and BINARY(5, 2) will raise an error because 5 is too large for 2 bits. Note that the bit length
         # should be less than the bit length of the prime number P, since otherwise the binary representation
         # of x will be non-unique.
-        if not 0 <= xLen < P.bit_length():
+        if not 0 <= xLen < ρ.bit_length():
             raise ValueError('invalid bit length')
         if isinstance(xGal, int):
-            xBin = [xGal % P >> iLen & 0x01 for iLen in range(xLen)]
+            xBin = [xGal % ρ >> iLen & 0x01 for iLen in range(xLen)]
             assert sum(xBit * 0x02 ** iLen for iLen, xBit in enumerate(xBin)) == xGal, msg
             return xBin
         bind = lambda iLen: self.MKWIRE(lambda getw, args: getw(xGal) >> iLen & 0x01)
@@ -238,13 +240,13 @@ class Assembly:
         # Convert x to an enum value, for example, ENUM(3, {1, 3, 5, 7}) will return {1: 0, 3: 1, 5: 0, 7: 0}
         # and ENUM(2, {1, 3, 5, 7}) will raise an error because 2 is not in the enum set.
         if isinstance(xGal, int):
-            xKey = {kInt: 0x01 - pow(xGal - kInt, P - 1, P) for kInt in kSet}
+            xKey = {kInt: 0x01 - pow(xGal - kInt, ρ - 1, ρ) for kInt in kSet}
             assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
             return xKey
         xFrz = tuple(sorted(xGal.data.items()))
         if (xKey := self.enums.get(kSet, {}).get(xFrz)) is not None:
             return xKey
-        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 - pow(getw(xGal) - kInt, P - 1, P))
+        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 - pow(getw(xGal) - kInt, ρ - 1, ρ))
         xKey = {kInt: 0x00 for kInt in kSet}
         for kInt in kSet:
             xBit = xKey[kInt] = bind(kInt)
@@ -329,9 +331,9 @@ class Assembly:
     def NEZ(self, xGal, *, msg = 'booleanization error'):
         # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
         if isinstance(xGal, int):
-            return pow(xGal, P - 1, P)
-        iGal = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 2, P))
-        rBit = self.MKWIRE(lambda getw, args: pow(getw(xGal), P - 1, P))
+            return pow(xGal, ρ - 1, ρ)
+        iGal = self.MKWIRE(lambda getw, args: pow(getw(xGal), ρ - 2, ρ))
+        rBit = self.MKWIRE(lambda getw, args: pow(getw(xGal), ρ - 1, ρ))
         self.MKGATE(rBit, xGal, xGal, msg = msg) # the following constraint ensures that o has to be 1 if x is non-zero
         self.MKGATE(xGal, iGal, rBit, msg = msg) # the following constraint ensures that o has to be 0 if x is zero
         return rBit
@@ -484,7 +486,7 @@ def isbin(x):
 # assert the type of a value
 def asint(x):
     if isinstance(x, int):
-        return (x + (P - 1) // 2) % P - (P - 1) // 2
+        return (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2
     raise TypeError('expected a constant value')
 def asgal(x):
     if isinstance(x, (int, Var)):
@@ -785,7 +787,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         return self.BINSUM(args, cGal = negs)
     def visit_Constant(self, node):
         if isinstance(node.value, int):
-            return node.value % P
+            return node.value % ρ
         if isinstance(node.value, str):
             return node.value
         raise SyntaxError('invalid constant')
@@ -940,16 +942,16 @@ if __name__ == '__main__':
     print('Number of gates:', asm.gate_count())
     print('Number of wires:', asm.wire_count())
     with Timer('Setting up QAP...'):
-        α = random.randrange(1, P)
-        β = random.randrange(1, P)
-        γ = random.randrange(1, P)
-        δ = random.randrange(1, P)
-        x = random.randrange(1, P)
+        α = random.randrange(1, ρ)
+        β = random.randrange(1, ρ)
+        γ = random.randrange(1, ρ)
+        δ = random.randrange(1, ρ)
+        x = random.randrange(1, ρ)
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = asm.setup(α, β, γ, δ, x)
     with Timer('Generating proof...'):
         args = {'W[{:#04x}]'.format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
-        r = random.randrange(1, P)
-        s = random.randrange(1, P)
+        r = random.randrange(1, ρ)
+        s = random.randrange(1, ρ)
         A1, B2, C1, uU = asm.prove(α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s)
     with Timer('Verifying...'):
         passed = asm.verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
