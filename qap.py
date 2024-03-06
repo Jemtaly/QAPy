@@ -3,24 +3,12 @@ import time
 import util
 import ast
 import random
-import pypbc
+import pymcl
 import multiprocessing
-# elliptic curve parameters for the SS512 curve, which is used to construct the bilinear pairing
-params = pypbc.Parameters(
-    "type a\n"
-    "q 8780710799663312522437781984754049815806883199414208211028653399266475630880222957078625179422662221423155858769582317459277713367317481324925129998224791\n"
-    "h 12016012264891146079388821366740534204802954401251311822919615131047207289359704531102844802183906537786776\n"
-    "r 730750818665451621361119245571504901405976559617\n"
-    "exp2 159\n"
-    "exp1 107\n"
-    "sign1 1\n"
-    "sign0 1\n"
-)
-pairing = pypbc.Pairing(params)
-G1 = pypbc.Element.random(pairing, pypbc.G1)
-G2 = pypbc.Element.random(pairing, pypbc.G2)
-# the order of the SS512 curve
-P = pairing.order()
+# the BLS12-381 curve parameters
+G1 = pymcl.P
+G2 = pymcl.Q
+P = pymcl.r
 # find the largest K such that P - 1 is divisible by 2 ** K, and Z is a primitive root of unity, they are used to perform FFT
 K = 1
 while (P - 1) % (K * 2) == 0:
@@ -30,14 +18,15 @@ for Z in range(2, P):
         break
 T = pow(Z, (P - 1) // K, P)
 # scalar multiplication and dot product optimized for parallel execution
-def worker(group, b, z):
-    return (pypbc.Element.from_bytes(pairing, group, b) * z).to_bytes()
-def scalar_mult_parallel(group, g, Z):
-    with multiprocessing.Pool() as pool:
-        return [pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for z in Z))]
-def dot_prod_parallel(group, G, Z, c):
-    with multiprocessing.Pool() as pool:
-        return sum((pypbc.Element.from_bytes(pairing, group, r) for r in pool.starmap(worker, ((group, g.to_bytes(), z) for g, z in zip(G, Z)))), c)
+THREADS = 4
+def worker(Group, b, z):
+    return str(Group(b) * pymcl.Fr(str(z)))
+def scalar_mult_parallel(Group, g, Z):
+    with multiprocessing.Pool(THREADS) as pool:
+        return [Group(r) for r in pool.starmap(worker, ((Group, str(g), z) for z in Z))]
+def dot_prod_parallel(Group, G, Z, c):
+    with multiprocessing.Pool(THREADS) as pool:
+        return sum((Group(r) for r in pool.starmap(worker, ((Group, str(g), z) for g, z in zip(G, Z)))), c)
 class Var:
     # All variables in a program are linear combinations of the variables in its witness vector, so they
     # can be represented by a dictionary that maps the indices of the variables in the witness vector to
@@ -81,19 +70,19 @@ class Assembly:
             for m, c in cM.data.items():
                 CxM[m] += c * X
         Zx = pow(x, I, P) - 0x01
-        Γ = pow(γ, P - 2, P)
-        Δ = pow(δ, P - 2, P)
-        α1 = G1 * α
-        β1 = G1 * β
-        δ1 = G1 * δ
-        β2 = G2 * β
-        γ2 = G2 * γ
-        δ2 = G2 * δ
-        u1U = scalar_mult_parallel(pypbc.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P for m in                      self.stmts])
-        v1V = scalar_mult_parallel(pypbc.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P for m in range(M) if m not in self.stmts])
-        x1I = scalar_mult_parallel(pypbc.G1, G1, [pow(x, i, P) for i in range(I)])
-        x2I = scalar_mult_parallel(pypbc.G2, G2, [pow(x, i, P) for i in range(I)])
-        y1I = scalar_mult_parallel(pypbc.G1, G1, [pow(x, i, P) * Δ * Zx % P for i in range(I - 1)])
+        Γ = pow(γ, -1, P)
+        Δ = pow(δ, -1, P)
+        α1 = G1 * pymcl.Fr(str(α))
+        β1 = G1 * pymcl.Fr(str(β))
+        δ1 = G1 * pymcl.Fr(str(δ))
+        β2 = G2 * pymcl.Fr(str(β))
+        γ2 = G2 * pymcl.Fr(str(γ))
+        δ2 = G2 * pymcl.Fr(str(δ))
+        u1U = scalar_mult_parallel(pymcl.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % P for m in                      self.stmts])
+        v1V = scalar_mult_parallel(pymcl.G1, G1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % P for m in range(M) if m not in self.stmts])
+        x1I = scalar_mult_parallel(pymcl.G1, G1, [pow(x, i, P) for i in range(I)])
+        x2I = scalar_mult_parallel(pymcl.G2, G2, [pow(x, i, P) for i in range(I)])
+        y1I = scalar_mult_parallel(pymcl.G1, G1, [pow(x, i, P) * Δ * Zx % P for i in range(I - 1)])
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         M = self.wire_count()
@@ -129,21 +118,21 @@ class Assembly:
         cwI = util.fft([Cw * pow(S, i, P) % P for i, Cw in enumerate(CwI)], R, P) # FFT in coset
         hI = [(P - 1) // 2 * (aw * bw - cw) % P for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
         HI = [H * pow(S, 0 - i, P) % P for i, H in enumerate(util.ifft(hI, R, P))] # IFFT in coset
-        A1 = α1 + δ1 * r
-        A1 = dot_prod_parallel(pypbc.G1, x1I, AwI, A1)
-        B1 = β1 + δ1 * s
-        B1 = dot_prod_parallel(pypbc.G1, x1I, BwI, B1)
-        B2 = β2 + δ2 * s
-        B2 = dot_prod_parallel(pypbc.G2, x2I, BwI, B2)
-        C1 = A1 * s + B1 * r - δ1 * (r * s % P)
-        C1 = dot_prod_parallel(pypbc.G1, y1I, HI, C1)
-        C1 = dot_prod_parallel(pypbc.G1, v1V, vV, C1)
+        A1 = α1 + δ1 * pymcl.Fr(str(r))
+        A1 = dot_prod_parallel(pymcl.G1, x1I, AwI, A1)
+        B1 = β1 + δ1 * pymcl.Fr(str(s))
+        B1 = dot_prod_parallel(pymcl.G1, x1I, BwI, B1)
+        B2 = β2 + δ2 * pymcl.Fr(str(s))
+        B2 = dot_prod_parallel(pymcl.G2, x2I, BwI, B2)
+        C1 = A1 * pymcl.Fr(str(s)) + B1 * pymcl.Fr(str(r)) - δ1 * pymcl.Fr(str(r * s % P))
+        C1 = dot_prod_parallel(pymcl.G1, y1I, HI, C1)
+        C1 = dot_prod_parallel(pymcl.G1, v1V, vV, C1)
         return A1, B2, C1, uU
     @staticmethod
     def verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
-        D1 = G1 * 0x00
-        D1 = dot_prod_parallel(pypbc.G1, u1U, uU, D1)
-        return pairing.apply(B2, A1) == pairing.apply(β2, α1) + pairing.apply(γ2, D1) + pairing.apply(δ2, C1)
+        D1 = G1 * pymcl.Fr(str(0))
+        D1 = dot_prod_parallel(pymcl.G1, u1U, uU, D1)
+        return pymcl.pairing(A1, B2) == pymcl.pairing(α1, β2) * pymcl.pairing(D1, γ2) * pymcl.pairing(C1, δ2)
     # the following methods are used to construct the arithmetic circuits
     def MKWIRE(self, func, name = None):
         # Add a new variable that defined by the given function to the witness vector.
@@ -202,12 +191,12 @@ class Assembly:
         if yGal == 0x00:
             raise ZeroDivisionError
         if isinstance(xGal, int) and isinstance(yGal, int):
-            return xGal * pow(yGal, P - 2, P) % P
+            return xGal * pow(yGal, -1, P) % P
         if isinstance(yGal, int):
-            return Var({i: m * pow(yGal, P - 2, P) % P for i, m in xGal.data.items()})
+            return Var({i: m * pow(yGal, -1, P) % P for i, m in xGal.data.items()})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
-        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), P - 2, P) % P)
+        zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), -1, P) % P)
         self.MKGATE(zGal, yGal, xGal, msg = msg)
         return zGal
     def POW(self, xGal, nBin):
@@ -276,8 +265,24 @@ class Assembly:
             return list(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
         if isinstance(tItm, tuple):
             return tuple(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
-        # return self.ADD(self.MUL(bBit, tAny), self.MUL(self.NOT(bBit), fAny)) # generate more constraints but faster to compile
+        # return self.ADD(self.MUL(bBit, tItm), self.MUL(self.NOT(bBit), fItm)) # generate more constraints but faster to compile
         return self.ADD(self.MUL(bBit, self.SUB(tItm, fItm)), fItm)
+    def GETBYBIN(self, lSpc, iBin, cBit = 0x01, *, msg = 'binary index out of range'):
+        # Get the value of a (multi-dimensional) list by the given binary index.
+        # For example, GETBYBIN([[1, 2], [3, 4], [5, 6]], [1, 0]) will return [5, 6]. The binary index can be any
+        # length, however, the value it represents should be less than the length of the list.
+        iLen = 2 ** len(iBin)
+        if len(lSpc) >= iLen:
+            lSpc = lSpc[:iLen]
+            for iBit in iBin:
+                lSpc = self.IF(iBit, lSpc[1::2], lSpc[0::2])
+            return lSpc[0]
+        *iBin, iBit = iBin
+        iLen = 2 ** len(iBin)
+        if len(lSpc) <= iLen:
+            self.MKGATE(cBit, iBit, 0x00, msg = msg)
+            return self.GETBYBIN(lSpc, iBin, cBit)
+        return self.IF(iBit, self.GETBYBIN(lSpc[:iLen], iBin, self.AND(cBit, self.NOT(iBit))), self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)))
     def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
         # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
@@ -758,6 +763,8 @@ class Compiler(ast.NodeVisitor, Assembly):
         outer, inner = shape(value)
         if len(outer) == 0:
             raise TypeError('cannot index a scalar')
+        if isinstance(value, list):
+            return self.GETBYBIN(value, slice if isbin(slice) else self.BINARY(asgal(slice), (len(value) - 1).bit_length()))
         keys, *outer = outer
         return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
     def visit_Call(self, node):
@@ -878,57 +885,24 @@ if __name__ == '__main__':
     with Timer('Compiling program...'):
         asm = Compiler()
         asm.visit(ast.parse(
-            "P0 = lambda x: x ^ x << 9 ^ x << 17\n"
-            "P1 = lambda x: x ^ x << 15 ^ x << 23\n"
-            "F0 = lambda x, y, z: x ^ y ^ z\n"
-            "F1 = lambda x, y, z: x & y | z & (x | y)\n"
-            "G0 = lambda x, y, z: x ^ y ^ z\n"
-            "G1 = lambda x, y, z: x & y | z & ~x\n"
-            "T0 = b32(0x79cc4519)\n"
-            "T1 = b32(0x7a879d8a)\n"
-            "def compress(V, I):\n"
-            "    W = [b32(0) for _ in range(68)]\n"
-            "    for j in range(0, 16):\n"
-            "        W[j] = I[j]\n"
-            "    for j in range(16, 68):\n"
-            "        W[j] = P1(W[j - 16] ^ W[j - 9] ^ W[j - 3] << 15) ^ W[j - 13] << 7 ^ W[j - 6]\n"
-            "    A = V[0]\n"
-            "    B = V[1]\n"
-            "    C = V[2]\n"
-            "    D = V[3]\n"
-            "    E = V[4]\n"
-            "    F = V[5]\n"
-            "    G = V[6]\n"
-            "    H = V[7]\n"
-            "    for j in range(0, 64):\n"
-            "        if j < 16:\n"
-            "            SS1 = {A << 12, E, T0 << j} << 7\n"
-            "            SS2 = SS1 ^ A << 12\n"
-            "            TT1 = {F0(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
-            "            TT2 = {G0(E, F, G), H, SS1, W[j]}\n"
-            "        else:\n"
-            "            SS1 = {A << 12, E, T1 << j} << 7\n"
-            "            SS2 = SS1 ^ A << 12\n"
-            "            TT1 = {F1(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
-            "            TT2 = {G1(E, F, G), H, SS1, W[j]}\n"
-            "        A, B, C, D, E, F, G, H = TT1, A, B << 9, C, P0(TT2), E, F << 19, G\n"
-            "    V[0] = A ^ V[0]\n"
-            "    V[1] = B ^ V[1]\n"
-            "    V[2] = C ^ V[2]\n"
-            "    V[3] = D ^ V[3]\n"
-            "    V[4] = E ^ V[4]\n"
-            "    V[5] = F ^ V[5]\n"
-            "    V[6] = G ^ V[6]\n"
-            "    V[7] = H ^ V[7]\n"
-            "    return V\n"
-            "V = [\n"
-            "    b32(0x7380166f), b32(0x4914b2b9), b32(0x172442d7), b32(0xda8a0600),\n"
-            "    b32(0xa96f30bc), b32(0x163138aa), b32(0xe38dee4d), b32(0xb0fb0e4e),\n"
-            "]\n"
-            "W = [b32(private(fmt('W[{:#04x}]', i))) for i in range(16)]\n"
-            "V = compress(V, W)\n"
-            "for i in range(8):\n"
-            "    reveal(fmt('V[{:#04x}]', i), V[i])\n"
+            "m = [i for i in range(256)]\n"
+            "j = b8(0)\n"
+            "for i in range(256):\n"
+            "    temp = m[i]\n"
+            "    j = {j, b8(temp), b8(private(fmt('k[{:#04x}]', i)))}\n"
+            "    m[i] = m[j]\n"
+            "    m[j] = temp\n"
+            "x = b8(0)\n"
+            "y = b8(0)\n"
+            "e = b8(1)\n"
+            "for i in range(256):\n"
+            "    x = x + e\n"
+            "    a = b8(m[x])\n"
+            "    y = y + a\n"
+            "    b = b8(m[y])\n"
+            "    m[x] = gal(b)\n"
+            "    m[y] = gal(a)\n"
+            "    reveal(fmt('c[{:#04x}]', i), m[a + b])\n"
         ))
     print('Number of gates:', asm.gate_count())
     print('Number of wires:', asm.wire_count())
@@ -941,6 +915,7 @@ if __name__ == '__main__':
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = asm.setup(α, β, γ, δ, x)
     with Timer('Generating proof...'):
         args = {'W[{:#04x}]'.format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
+        args = {'k[{:#04x}]'.format(i): i for i in range(256)}
         r = random.randrange(1, P)
         s = random.randrange(1, P)
         A1, B2, C1, uU = asm.prove(α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s)
