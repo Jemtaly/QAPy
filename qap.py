@@ -18,7 +18,7 @@ for Z in range(2, P):
         break
 T = pow(Z, (P - 1) // K, P)
 # scalar multiplication and dot product optimized for parallel execution
-THREADS = 4
+THREADS = None # automatically set to the number of CPU cores
 def worker(Group, b, z):
     return str(Group(b) * pymcl.Fr(str(z)))
 def scalar_mult_parallel(Group, g, Z):
@@ -282,7 +282,7 @@ class Assembly:
         if len(lSpc) <= iLen:
             self.MKGATE(cBit, iBit, 0x00, msg = msg)
             return self.GETBYBIN(lSpc, iBin, cBit)
-        return self.IF(iBit, self.GETBYBIN(lSpc[:iLen], iBin, self.AND(cBit, self.NOT(iBit))), self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)))
+        return self.IF(iBit, self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)), self.GETBYBIN(lSpc[:iLen], iBin, self.AND(cBit, self.NOT(iBit))))
     def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
         # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
@@ -885,24 +885,57 @@ if __name__ == '__main__':
     with Timer('Compiling program...'):
         asm = Compiler()
         asm.visit(ast.parse(
-            "m = [i for i in range(256)]\n"
-            "j = b8(0)\n"
-            "for i in range(256):\n"
-            "    temp = m[i]\n"
-            "    j = {j, b8(temp), b8(private(fmt('k[{:#04x}]', i)))}\n"
-            "    m[i] = m[j]\n"
-            "    m[j] = temp\n"
-            "x = b8(0)\n"
-            "y = b8(0)\n"
-            "e = b8(1)\n"
-            "for i in range(256):\n"
-            "    x = x + e\n"
-            "    a = b8(m[x])\n"
-            "    y = y + a\n"
-            "    b = b8(m[y])\n"
-            "    m[x] = gal(b)\n"
-            "    m[y] = gal(a)\n"
-            "    reveal(fmt('c[{:#04x}]', i), m[a + b])\n"
+            "P0 = lambda x: x ^ x << 9 ^ x << 17\n"
+            "P1 = lambda x: x ^ x << 15 ^ x << 23\n"
+            "F0 = lambda x, y, z: x ^ y ^ z\n"
+            "F1 = lambda x, y, z: x & y | z & (x | y)\n"
+            "G0 = lambda x, y, z: x ^ y ^ z\n"
+            "G1 = lambda x, y, z: x & y | z & ~x\n"
+            "T0 = b32(0x79cc4519)\n"
+            "T1 = b32(0x7a879d8a)\n"
+            "def compress(V, I):\n"
+            "    W = [b32(0) for _ in range(68)]\n"
+            "    for j in range(0, 16):\n"
+            "        W[j] = I[j]\n"
+            "    for j in range(16, 68):\n"
+            "        W[j] = P1(W[j - 16] ^ W[j - 9] ^ W[j - 3] << 15) ^ W[j - 13] << 7 ^ W[j - 6]\n"
+            "    A = V[0]\n"
+            "    B = V[1]\n"
+            "    C = V[2]\n"
+            "    D = V[3]\n"
+            "    E = V[4]\n"
+            "    F = V[5]\n"
+            "    G = V[6]\n"
+            "    H = V[7]\n"
+            "    for j in range(0, 64):\n"
+            "        if j < 16:\n"
+            "            SS1 = {A << 12, E, T0 << j} << 7\n"
+            "            SS2 = SS1 ^ A << 12\n"
+            "            TT1 = {F0(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
+            "            TT2 = {G0(E, F, G), H, SS1, W[j]}\n"
+            "        else:\n"
+            "            SS1 = {A << 12, E, T1 << j} << 7\n"
+            "            SS2 = SS1 ^ A << 12\n"
+            "            TT1 = {F1(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
+            "            TT2 = {G1(E, F, G), H, SS1, W[j]}\n"
+            "        A, B, C, D, E, F, G, H = TT1, A, B << 9, C, P0(TT2), E, F << 19, G\n"
+            "    V[0] = A ^ V[0]\n"
+            "    V[1] = B ^ V[1]\n"
+            "    V[2] = C ^ V[2]\n"
+            "    V[3] = D ^ V[3]\n"
+            "    V[4] = E ^ V[4]\n"
+            "    V[5] = F ^ V[5]\n"
+            "    V[6] = G ^ V[6]\n"
+            "    V[7] = H ^ V[7]\n"
+            "    return V\n"
+            "V = [\n"
+            "    b32(0x7380166f), b32(0x4914b2b9), b32(0x172442d7), b32(0xda8a0600),\n"
+            "    b32(0xa96f30bc), b32(0x163138aa), b32(0xe38dee4d), b32(0xb0fb0e4e),\n"
+            "]\n"
+            "W = [b32(private(fmt('W[{:#04x}]', i))) for i in range(16)]\n"
+            "V = compress(V, W)\n"
+            "for i in range(8):\n"
+            "    reveal(fmt('V[{:#04x}]', i), V[i])\n"
         ))
     print('Number of gates:', asm.gate_count())
     print('Number of wires:', asm.wire_count())
@@ -915,7 +948,6 @@ if __name__ == '__main__':
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = asm.setup(α, β, γ, δ, x)
     with Timer('Generating proof...'):
         args = {'W[{:#04x}]'.format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
-        args = {'k[{:#04x}]'.format(i): i for i in range(256)}
         r = random.randrange(1, P)
         s = random.randrange(1, P)
         A1, B2, C1, uU = asm.prove(α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s)
