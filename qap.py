@@ -5,6 +5,7 @@ import ast
 import random
 import pymcl
 import multiprocessing
+import copy
 # the BLS12-381 curve parameters
 g1 = pymcl.g1
 g2 = pymcl.g2
@@ -255,12 +256,17 @@ class Assembly:
         eGal = self.SUM(self.MUL(xBit, 0x01) for kInt, xBit in xKey.items())
         self.ASSERT_EQ(xGal, tGal, msg = msg)
         self.ASSERT_EQ(0x01, eGal, msg = msg)
-        self.enums.setdefault(kSet, {})[xFrz] = xKey # memoization
+        self.enums.setdefault(kSet, {})[xFrz] = xKey # optimize by memoization
         return xKey
     # conditional expression and get/set operations on lists and dictionaries
     def IF(self, bBit, tItm, fItm):
         # Conditional expression, b is a boolean value, t and f are the true and false branches (can be scalars,
         # (multi-dimensional) lists, dictionaries, or tuples, but should have the same shape).
+        # optimize when b is a constant
+        if bBit == 0x01:
+            return tItm
+        if bBit == 0x00:
+            return fItm
         if isinstance(tItm, dict):
             return dict((zInt, self.IF(bBit, tItm[zInt], fItm[zInt])) for zInt in tItm.keys())
         if isinstance(tItm, list):
@@ -288,24 +294,12 @@ class Assembly:
     def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
         # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
-        if isinstance(lSpc, list):
-            pItm = lSpc[0]
-            if isinstance(pItm, dict):
-                return dict((zInt, self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey)) for zInt in pItm.keys())
-            if isinstance(pItm, list):
-                return list(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey) for zInt in range(len(pItm)))
-            if isinstance(pItm, tuple):
-                return tuple(self.GETBYKEY([vItm[zInt] for vItm in lSpc], iKey) for zInt in range(len(pItm)))
-            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iKey.items())
-        if isinstance(lSpc, dict):
-            pItm = next(iter(lSpc.values()))
-            if isinstance(pItm, dict):
-                return dict((zInt, self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey)) for zInt in pItm.keys())
-            if isinstance(pItm, list):
-                return list(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey) for zInt in range(len(pItm)))
-            if isinstance(pItm, tuple):
-                return tuple(self.GETBYKEY({kInt: vItm[zInt] for kInt, vItm in lSpc.items()}, iKey) for zInt in range(len(pItm)))
-            return self.SUM(self.MUL(iBit, lSpc[kInt]) for kInt, iBit in iKey.items())
+        iItr = iter(iKey.items())
+        kInt, iBit = next(iItr)
+        vItm = lSpc[kInt]
+        for kInt, iBit in iItr:
+            vItm = self.IF(iBit, lSpc[kInt], vItm)
+        return vItm
     def SETBYKEY(self, vItm, lSpc, *iKes, cBit = 0x01):
         # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return a new
         # (multi-dimensional) list or dictionary with the value set.
@@ -765,7 +759,7 @@ class Compiler(ast.NodeVisitor, Assembly):
         outer, inner = shape(value)
         if len(outer) == 0:
             raise TypeError('cannot index a scalar')
-        if isinstance(value, list):
+        if isinstance(value, list): # optimize for list
             return self.GETBYBIN(value, slice if isbin(slice) else self.BINARY(asgal(slice), (len(value) - 1).bit_length()))
         keys, *outer = outer
         return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
