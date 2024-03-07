@@ -5,7 +5,6 @@ import ast
 import random
 import pymcl
 import multiprocessing
-import copy
 # the BLS12-381 curve parameters
 g1 = pymcl.g1
 g2 = pymcl.g2
@@ -273,7 +272,6 @@ class Assembly:
             return list(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
         if isinstance(tItm, tuple):
             return tuple(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
-        # return self.ADD(self.MUL(bBit, tItm), self.MUL(self.NOT(bBit), fItm)) # generate more constraints but faster to compile
         return self.ADD(self.MUL(bBit, self.SUB(tItm, fItm)), fItm)
     def GETBYBIN(self, lSpc, iBin, cBit = 0x01, *, msg = 'binary index out of range'):
         # Get the value of a (multi-dimensional) list by the given binary index.
