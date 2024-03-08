@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 import time
-import util
+import fft
 import ast
 import random
 import pymcl
@@ -9,14 +9,6 @@ import multiprocessing
 g1 = pymcl.g1
 g2 = pymcl.g2
 ρ = pymcl.r
-# find the largest K such that P - 1 is divisible by 2 ** K, and Z is a primitive root of unity, they are used to perform FFT
-K = 1
-while (ρ - 1) % (K * 2) == 0:
-    K = K * 2
-for Z in range(2, ρ):
-    if pow(Z, (ρ - 1) // 2, ρ) != 1:
-        break
-T = pow(Z, (ρ - 1) // K, ρ)
 # scalar multiplication and dot product optimized for parallel execution
 THREADS = None # automatically set to the number of CPU cores
 def worker(Group, p, z):
@@ -55,12 +47,10 @@ class Assembly:
     def setup(self, α, β, γ, δ, x):
         M = self.wire_count()
         N = self.gate_count()
-        I = 1
-        while I < N:
-            I = I * 2
-        R = pow(T, K // I, ρ) # primitive I-th root of unity, used to perform FFT
-        xI = [pow(x, i, ρ) for i in range(I)]
-        XI = util.ifft(xI, R, ρ)
+        I = 1 << (N - 1).bit_length() # the smallest power of 2 that is not less than N
+        p = fft.pru(I, ρ) # the primitive I-th root of unity in GF(P)
+        xI = list(fft.pows(x, I, ρ))
+        XI = fft.ifft(xI, p, ρ)
         AxM = [0x00 for _ in range(M)]
         BxM = [0x00 for _ in range(M)]
         CxM = [0x00 for _ in range(M)]
@@ -80,21 +70,19 @@ class Assembly:
         β2 = g2 * pymcl.Fr(str(β))
         γ2 = g2 * pymcl.Fr(str(γ))
         δ2 = g2 * pymcl.Fr(str(δ))
-        u1U = scalar_mult_parallel(g1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % ρ for m in                      self.stmts])
-        v1V = scalar_mult_parallel(g1, [(β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % ρ for m in range(M) if m not in self.stmts])
-        x1I = scalar_mult_parallel(g1, [pow(x, i, ρ) for i in range(I)])
-        x2I = scalar_mult_parallel(g2, [pow(x, i, ρ) for i in range(I)])
-        y1I = scalar_mult_parallel(g1, [pow(x, i, ρ) * Δ * Zx % ρ for i in range(I - 1)])
+        u1U = scalar_mult_parallel(g1, ((β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % ρ for m in                      self.stmts))
+        v1V = scalar_mult_parallel(g1, ((β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % ρ for m in range(M) if m not in self.stmts))
+        x1I = scalar_mult_parallel(g1, fft.pows(x, I, ρ))
+        x2I = scalar_mult_parallel(g2, fft.pows(x, I, ρ))
+        y1I = scalar_mult_parallel(g1, (y * Δ * Zx % ρ for y in fft.pows(x, I - 1, ρ)))
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         M = self.wire_count()
         N = self.gate_count()
-        I = 1
-        while I < N:
-            I = I * 2
-        J = I * 2
-        R = pow(T, K // I, ρ) # primitive I-th root of unity, used to perform FFT
-        S = pow(T, K // J, ρ) # primitive J-th root of unity, used to convert the FFT result to the coset
+        I = 1 << (N - 1).bit_length()
+        J = 1 << (N - 1).bit_length() + 1
+        p = fft.pru(I, ρ)
+        q = fft.pru(J, ρ)
         wM = []
         getw = lambda xM: sum(wM[m] * x for m, x in xM.data.items()) % ρ
         for func in self.wires:
@@ -112,14 +100,14 @@ class Assembly:
             awN.append(aw)
             bwN.append(bw)
             cwN.append(cw)
-        AwI = util.ifft(awN + [0x00] * (I - N), R, ρ)
-        BwI = util.ifft(bwN + [0x00] * (I - N), R, ρ)
-        CwI = util.ifft(cwN + [0x00] * (I - N), R, ρ)
-        awI = util.fft([Aw * pow(S, i, ρ) % ρ for i, Aw in enumerate(AwI)], R, ρ) # FFT in coset
-        bwI = util.fft([Bw * pow(S, i, ρ) % ρ for i, Bw in enumerate(BwI)], R, ρ) # FFT in coset
-        cwI = util.fft([Cw * pow(S, i, ρ) % ρ for i, Cw in enumerate(CwI)], R, ρ) # FFT in coset
+        AwI = fft.ifft(awN + [0x00] * (I - N), p, ρ)
+        BwI = fft.ifft(bwN + [0x00] * (I - N), p, ρ)
+        CwI = fft.ifft(cwN + [0x00] * (I - N), p, ρ)
+        awI = fft.fft([Aw * k % ρ for k, Aw in zip(fft.pows(q, I, ρ), AwI)], p, ρ) # FFT in coset
+        bwI = fft.fft([Bw * k % ρ for k, Bw in zip(fft.pows(q, I, ρ), BwI)], p, ρ) # FFT in coset
+        cwI = fft.fft([Cw * k % ρ for k, Cw in zip(fft.pows(q, I, ρ), CwI)], p, ρ) # FFT in coset
         hI = [(ρ - 1) // 2 * (aw * bw - cw) % ρ for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
-        HI = [H * pow(S, 0 - i, ρ) % ρ for i, H in enumerate(util.ifft(hI, R, ρ))] # IFFT in coset
+        HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ))] # inv in coset
         A1 = α1 + δ1 * pymcl.Fr(str(r))
         A1 = dot_prod_parallel(A1, x1I, AwI)
         B1 = β1 + δ1 * pymcl.Fr(str(s))
