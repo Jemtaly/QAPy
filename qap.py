@@ -24,9 +24,9 @@ def dot_prod_parallel(O, Ps, Zs):
 class Var:
     # All variables in a program are linear combinations of the variables in its witness vector, so they
     # can be represented by a dictionary that maps the indices of the variables in the witness vector to
-    # their coefficients, for example, x = w0 + 5 * w2 + 7 * w3 can be represented as {0: 1, 2: 5, 3: 7},
-    # note that the variables with coefficient 0 are always omitted.
-    # Constants are represented by the integer itself.
+    # their coefficients, for example, x = w₀ + 5w₂ + 7w₃ can be represented as {0: 1, 2: 5, 3: 7}, note
+    # that the variables with coefficient 0 are always omitted.
+    # Besides, constants are always represented by the integer itself.
     def __init__(self, data):
         self.data = data
 class Assembly:
@@ -44,24 +44,35 @@ class Assembly:
     def wire_count(self):
         return len(self.wires)
     # Groth16 zk-SNARK setup, prove, and verify methods
-    def setup(self, α, β, γ, δ, x):
+    def setup(self, α, β, γ, δ, τ):
         M = self.wire_count()
         N = self.gate_count()
         I = 1 << (N - 1).bit_length() # the smallest power of 2 that is not less than N
         p = fft.pru(I, ρ) # the primitive I-th root of unity in GF(P)
-        xI = list(fft.pows(x, I, ρ))
+        # We need to compute Aₘ(τ), Bₘ(τ), Cₘ(τ) for m in [0, M), where Aₘ, Bₘ, Cₘ are the lagrange polynomials
+        # of the m-th variable in the witness vector. However, calculating the lagrange polynomials for each
+        # variable can be quite time-consuming, here we can use the properties of the FFT to bypass this step.
+        # The FFT has the following property:
+        #     Σᵢ₌₀ⁿ⁻¹ Xᵢyᵢ = Σᵢ₌₀ⁿ⁻¹ xᵢYᵢ
+        # where xᵢ and Xᵢ, yᵢ and Yᵢ are two FFT pairs. Using this property, we have:
+        #     Aₘ(τ) = Σᵢ₌₀ⁿ⁻¹ Xᵢaᵢₘ
+        #     Bₘ(τ) = Σᵢ₌₀ⁿ⁻¹ Xᵢbᵢₘ
+        #     Cₘ(τ) = Σᵢ₌₀ⁿ⁻¹ Xᵢcᵢₘ
+        # where aᵢₘ, bᵢₘ, cᵢₘ are the coefficients of the m-th variable in the witness vector in the i-th gate,
+        # and Xᵢ is the i-th element of the IFFT of the powers of τ.
+        xI = list(fft.pows(τ, I, ρ))
         XI = fft.ifft(xI, p, ρ)
-        AxM = [0x00 for _ in range(M)]
-        BxM = [0x00 for _ in range(M)]
-        CxM = [0x00 for _ in range(M)]
+        AτM = [0x00 for _ in range(M)]
+        BτM = [0x00 for _ in range(M)]
+        CτM = [0x00 for _ in range(M)]
         for X, (aM, bM, cM, msg) in zip(XI, self.gates):
             for m, a in aM.data.items():
-                AxM[m] += a * X
+                AτM[m] += X * a
             for m, b in bM.data.items():
-                BxM[m] += b * X
+                BτM[m] += X * b
             for m, c in cM.data.items():
-                CxM[m] += c * X
-        Zx = pow(x, I, ρ) - 0x01
+                CτM[m] += X * c
+        Zτ = pow(τ, I, ρ) - 0x01 # Z(τ), where Z(X) = Πᵢ₌₀ⁿ⁻¹ (X - pⁱ)
         Γ = pow(γ, -1, ρ)
         Δ = pow(δ, -1, ρ)
         α1 = g1 * pymcl.Fr(str(α))
@@ -70,11 +81,11 @@ class Assembly:
         β2 = g2 * pymcl.Fr(str(β))
         γ2 = g2 * pymcl.Fr(str(γ))
         δ2 = g2 * pymcl.Fr(str(δ))
-        u1U = scalar_mult_parallel(g1, ((β * AxM[m] + α * BxM[m] + CxM[m]) * Γ % ρ for m in                      self.stmts))
-        v1V = scalar_mult_parallel(g1, ((β * AxM[m] + α * BxM[m] + CxM[m]) * Δ % ρ for m in range(M) if m not in self.stmts))
-        x1I = scalar_mult_parallel(g1, fft.pows(x, I, ρ))
-        x2I = scalar_mult_parallel(g2, fft.pows(x, I, ρ))
-        y1I = scalar_mult_parallel(g1, (y * Δ * Zx % ρ for y in fft.pows(x, I - 1, ρ)))
+        u1U = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Γ % ρ for m in                      self.stmts))
+        v1V = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Δ % ρ for m in range(M) if m not in self.stmts))
+        x1I = scalar_mult_parallel(g1, fft.pows(τ, I, ρ))
+        x2I = scalar_mult_parallel(g2, fft.pows(τ, I, ρ))
+        y1I = scalar_mult_parallel(g1, (x * Δ * Zτ % ρ for x in fft.pows(τ, I - 1, ρ)))
         return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
     def prove(self, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args, r, s):
         M = self.wire_count()
@@ -84,7 +95,7 @@ class Assembly:
         p = fft.pru(I, ρ)
         q = fft.pru(J, ρ)
         wM = []
-        getw = lambda xM: sum(wM[m] * x for m, x in xM.data.items()) % ρ
+        getw = lambda tM: sum(wM[m] * t for m, t in tM.data.items()) % ρ
         for func in self.wires:
             wM.append(func(getw, args))
         uU = [wM[m] for m in                      self.stmts]
@@ -100,6 +111,10 @@ class Assembly:
             awN.append(aw)
             bwN.append(bw)
             cwN.append(cw)
+        # Here we already have the value of aᵢwᵢ(X), bᵢwᵢ(X), cᵢwᵢ(X) for each X = pⁱ, i in [0, I). However,
+        # since the value of Z(X) on these points are all 0, we cannot simply get H = (A * B - C) / Z in this
+        # domain. So we need to first compute their values in the coset X = pⁱq, i in [0, I) by IFFT and FFT.
+        # Besides, note that the value of Z(X) in the coset all equals -2.
         AwI = fft.ifft(awN + [0x00] * (I - N), p, ρ)
         BwI = fft.ifft(bwN + [0x00] * (I - N), p, ρ)
         CwI = fft.ifft(cwN + [0x00] * (I - N), p, ρ)
@@ -107,7 +122,7 @@ class Assembly:
         bwI = fft.fft([Bw * k % ρ for k, Bw in zip(fft.pows(q, I, ρ), BwI)], p, ρ) # FFT in coset
         cwI = fft.fft([Cw * k % ρ for k, Cw in zip(fft.pows(q, I, ρ), CwI)], p, ρ) # FFT in coset
         hI = [(ρ - 1) // 2 * (aw * bw - cw) % ρ for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
-        HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ))] # inv in coset
+        HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ))] # IFFT in coset
         A1 = α1 + δ1 * pymcl.Fr(str(r))
         A1 = dot_prod_parallel(A1, x1I, AwI)
         B1 = β1 + δ1 * pymcl.Fr(str(s))
@@ -168,9 +183,9 @@ class Assembly:
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * yGal % ρ
         if isinstance(yGal, int):
-            return Var({i: m * yGal % ρ for i, m in xGal.data.items()})
+            return Var({k: v * yGal % ρ for k, v in xGal.data.items()})
         if isinstance(xGal, int):
-            return Var({i: m * xGal % ρ for i, m in yGal.data.items()})
+            return Var({k: v * xGal % ρ for k, v in yGal.data.items()})
         zGal = self.MKWIRE(lambda getw, args: getw(xGal) * getw(yGal) % ρ)
         self.MKGATE(xGal, yGal, zGal, msg = msg)
         return zGal
@@ -183,7 +198,7 @@ class Assembly:
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * pow(yGal, -1, ρ) % ρ
         if isinstance(yGal, int):
-            return Var({i: m * pow(yGal, -1, ρ) % ρ for i, m in xGal.data.items()})
+            return Var({k: v * pow(yGal, -1, ρ) % ρ for k, v in xGal.data.items()})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), -1, ρ) % ρ)
@@ -314,8 +329,8 @@ class Assembly:
             return pow(xGal, ρ - 1, ρ)
         iGal = self.MKWIRE(lambda getw, args: pow(getw(xGal), ρ - 2, ρ))
         rBit = self.MKWIRE(lambda getw, args: pow(getw(xGal), ρ - 1, ρ))
-        self.MKGATE(rBit, xGal, xGal, msg = msg) # the following constraint ensures that o has to be 1 if x is non-zero
-        self.MKGATE(xGal, iGal, rBit, msg = msg) # the following constraint ensures that o has to be 0 if x is zero
+        self.MKGATE(rBit, xGal, xGal, msg = msg) # asserts that r has to be 1 if x is non-zero
+        self.MKGATE(xGal, iGal, rBit, msg = msg) # asserts that r has to be 0 if x is zero
         return rBit
     def GE(self, xGal, yGal, bLen, msg = 'GE compare failed'): # 0x00 <= xGal - yGal < 0x02 ** bLen
         return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(xGal, yGal)), bLen + 1, msg = msg)[bLen]
