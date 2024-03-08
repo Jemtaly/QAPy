@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-import random
 def pows(a, n, p):
     r = 1
     for _ in range(n):
@@ -27,24 +25,3 @@ def ifft(a, w, p):
     w = pow(w, -1, p)
     m = pow(n, -1, p)
     return [x * m % p for x in fft(a, w, p)]
-if __name__ == '__main__':
-    # p = 998244353
-    # n = 1 << 10
-    # w = pru(n, p)
-    # a = [random.randrange(p) for _ in range(n)]
-    # x = list(pows(random.randrange(2, p), n, p))
-    # A = ifft(a, w, p)
-    # X = ifft(x, w, p)
-    # aX = [ai * Xi % p for ai, Xi in zip(a, X)]
-    # Ax = [Ai * xi % p for Ai, xi in zip(A, x)]
-    # print(set(aX) & set(Ax))
-    p = 998244353
-    n = 1 << 10
-    w = pru(n, p)
-    aI = [random.randrange(p) for _ in range(n)]
-    xI = [random.randrange(p) for _ in range(n)]
-    AI = ifft(aI, w, p)
-    XI = ifft(xI, w, p)
-    Xa = sum(X * a for X, a in zip(XI, aI))
-    Ax = sum(A * x for A, x in zip(AI, xI))
-    assert Xa % p == Ax % p
