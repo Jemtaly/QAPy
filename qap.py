@@ -49,17 +49,19 @@ class Assembly:
         N = self.gate_count()
         I = 1 << (N - 1).bit_length() # the smallest power of 2 that is not less than N
         p = fft.pru(I, ρ) # the primitive I-th root of unity in GF(P)
-        # We need to compute Aₘ(τ), Bₘ(τ), Cₘ(τ) for m in [0, M), where Aₘ, Bₘ, Cₘ are the lagrange polynomials
-        # of the m-th variable in the witness vector. However, calculating the lagrange polynomials for each
-        # variable can be quite time-consuming, here we can use the properties of the FFT to bypass this step.
-        # The FFT has the following property:
-        #     Σᵢ₌₀ⁿ⁻¹ Xᵢyᵢ = Σᵢ₌₀ⁿ⁻¹ xᵢYᵢ
-        # where xᵢ and Xᵢ, yᵢ and Yᵢ are two FFT pairs. Using this property, we have:
-        #     Aₘ(τ) = Σᵢ₌₀ⁿ⁻¹ Xᵢaᵢₘ
-        #     Bₘ(τ) = Σᵢ₌₀ⁿ⁻¹ Xᵢbᵢₘ
-        #     Cₘ(τ) = Σᵢ₌₀ⁿ⁻¹ Xᵢcᵢₘ
-        # where aᵢₘ, bᵢₘ, cᵢₘ are the coefficients of the m-th variable in the witness vector in the i-th gate,
-        # and Xᵢ is the i-th element of the IFFT of the powers of τ.
+        # Here we need to compute Aₘ(τ), Bₘ(τ), Cₘ(τ) for m in [0, M), where Aₘ, Bₘ and Cₘ are the polynomials
+        # transformed from the m-th column of the three constraint matrices respectively. The naivest way is to
+        # calculate the polynomials using Lagrange interpolation, which requires O(I²M) time complexity for all
+        # the M columns. iFFT can reduce this to O(IMlogI), but it's still too slow for large I and M. However,
+        # it's worth noting that the vast majority of values in the constraint matrices are 0, and the number
+        # of non-zero values in the matrices is only O(M). So we can make use of a property of DFT:
+        #     Σᵢ₌₀ᴵ⁻¹ Xᵢyᵢ = Σᵢ₌₀ᴵ⁻¹ xᵢYᵢ
+        # where xᵢ and Xᵢ, yᵢ and Yᵢ are two DFT pairs. Thus the three values required can be converted to
+        #     Aₘ(τ) = Σᵢ₌₀ᴵ⁻¹ Xᵢaᵢₘ
+        #     Bₘ(τ) = Σᵢ₌₀ᴵ⁻¹ Xᵢbᵢₘ
+        #     Cₘ(τ) = Σᵢ₌₀ᴵ⁻¹ Xᵢcᵢₘ
+        # where aᵢₘ, bᵢₘ, cᵢₘ are the elements in row i and column m of the three constraint matrices, and X is
+        # the inverse DFTed form of the vector [τ⁰, τ¹, ..., τⁱ⁻¹]. All of these can be done in O(IlogI) time.
         xI = list(fft.pows(τ, I, ρ))
         XI = fft.ifft(xI, p, ρ)
         AτM = [0x00 for _ in range(M)]
@@ -72,7 +74,7 @@ class Assembly:
                 BτM[m] += X * b
             for m, c in cM.data.items():
                 CτM[m] += X * c
-        Zτ = pow(τ, I, ρ) - 0x01 # Z(τ), where Z(X) = Πᵢ₌₀ⁿ⁻¹ (X - pⁱ)
+        Zτ = pow(τ, I, ρ) - 0x01 # Z(τ), where Z(X) = Πᵢ₌₀ᴵ⁻¹ (X - pⁱ)
         Γ = pow(γ, -1, ρ)
         Δ = pow(δ, -1, ρ)
         α1 = g1 * pymcl.Fr(str(α))
@@ -95,7 +97,7 @@ class Assembly:
         p = fft.pru(I, ρ)
         q = fft.pru(J, ρ)
         wM = []
-        getw = lambda tM: sum(wM[m] * t for m, t in tM.data.items()) % ρ
+        getw = lambda tM: sum(wM[m] * t for m, t in tM.data.items()) % ρ # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
         for func in self.wires:
             wM.append(func(getw, args))
         uU = [wM[m] for m in                      self.stmts]
@@ -111,18 +113,22 @@ class Assembly:
             awN.append(aw)
             bwN.append(bw)
             cwN.append(cw)
-        # Here we already have the value of aᵢwᵢ(X), bᵢwᵢ(X), cᵢwᵢ(X) for each X = pⁱ, i in [0, I). However,
-        # since the value of Z(X) on these points are all 0, we cannot simply get H = (A * B - C) / Z in this
-        # domain. So we need to first compute their values in the coset X = pⁱq, i in [0, I) by IFFT and FFT.
-        # Besides, note that the value of Z(X) in the coset all equals -2.
+        # Here we already have
+        #     A(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘAₘ(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘaᵢₘ
+        #     B(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘBₘ(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘbᵢₘ
+        #     C(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘCₘ(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘcᵢₘ
+        # for i in [0, I), so we can simply get A(X), B(X), C(X) using iFFT. However, since Z(pⁱ) always equals
+        # 0, it's not possible to calculate H(X) = (A(X) * B(X) - C(X)) / Z(X) in this domain. Instead, we use
+        # coset FFT to get A(pⁱq), B(pⁱq), C(pⁱq), then calculate corresponding H(pⁱq) (note that Z(pⁱq) = -2),
+        # and finally recover H(X) using the coset iFFT.
         AwI = fft.ifft(awN + [0x00] * (I - N), p, ρ)
         BwI = fft.ifft(bwN + [0x00] * (I - N), p, ρ)
         CwI = fft.ifft(cwN + [0x00] * (I - N), p, ρ)
-        awI = fft.fft([Aw * k % ρ for k, Aw in zip(fft.pows(q, I, ρ), AwI)], p, ρ) # FFT in coset
-        bwI = fft.fft([Bw * k % ρ for k, Bw in zip(fft.pows(q, I, ρ), BwI)], p, ρ) # FFT in coset
-        cwI = fft.fft([Cw * k % ρ for k, Cw in zip(fft.pows(q, I, ρ), CwI)], p, ρ) # FFT in coset
+        awI = fft.fft([Aw * k % ρ for k, Aw in zip(fft.pows(q, I, ρ), AwI)], p, ρ) # Coset FFT
+        bwI = fft.fft([Bw * k % ρ for k, Bw in zip(fft.pows(q, I, ρ), BwI)], p, ρ) # Coset FFT
+        cwI = fft.fft([Cw * k % ρ for k, Cw in zip(fft.pows(q, I, ρ), CwI)], p, ρ) # Coset FFT
         hI = [(ρ - 1) // 2 * (aw * bw - cw) % ρ for aw, bw, cw in zip(awI, bwI, cwI)] # (A * B - C) / Z on coset
-        HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ))] # IFFT in coset
+        HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ))] # Coset iFFT
         A1 = α1 + δ1 * pymcl.Fr(str(r))
         A1 = dot_prod_parallel(A1, x1I, AwI)
         B1 = β1 + δ1 * pymcl.Fr(str(s))
