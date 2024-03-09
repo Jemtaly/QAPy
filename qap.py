@@ -49,19 +49,21 @@ class Assembly:
         N = self.gate_count()
         I = 1 << (N - 1).bit_length() # the smallest power of 2 that is not less than N
         p = fft.pru(I, ρ) # the primitive I-th root of unity in GF(P)
-        # Here we need to compute Aₘ(τ), Bₘ(τ), Cₘ(τ) for m in [0, M), where Aₘ, Bₘ and Cₘ are the polynomials
-        # transformed from the m-th column of the three constraint matrices respectively. The naivest way is to
-        # calculate the polynomials using Lagrange interpolation, which requires O(I²M) time complexity for all
-        # the M columns. iFFT can reduce this to O(IMlogI), but it's still too slow for large I and M. However,
-        # it's worth noting that the vast majority of values in the constraint matrices are 0, and the number
-        # of non-zero values in the matrices is only O(M). So we can make use of a property of DFT:
+        # What we need is to calculate Aₘ(τ), Bₘ(τ), Cₘ(τ) for m in [0, M), where Aₘ, Bₘ and Cₘ are the
+        # polynomials transformed from the m-th column of the three constraint matrices respectively.
+        # The naivest way is to calculate the polynomials using Lagrange interpolation, which requires
+        # O(I²M) time complexity for all the M columns. iFFT can reduce this to O(IMlogI), but this is
+        # still too slow for large I and M. However, it's worth noting that the vast majority of values
+        # in the constraint matrices are 0, and the number of non-zero values in the matrices is only
+        # O(M). So we can make use of a property of DFT:
         #     Σᵢ₌₀ᴵ⁻¹ Xᵢyᵢ = Σᵢ₌₀ᴵ⁻¹ xᵢYᵢ
-        # where xᵢ and Xᵢ, yᵢ and Yᵢ are two DFT pairs. Thus the three values required can be converted to
+        # where xᵢ and Xᵢ, yᵢ and Yᵢ are two DFT pairs. So the three values required can be converted to
         #     Aₘ(τ) = Σᵢ₌₀ᴵ⁻¹ Xᵢaᵢₘ
         #     Bₘ(τ) = Σᵢ₌₀ᴵ⁻¹ Xᵢbᵢₘ
         #     Cₘ(τ) = Σᵢ₌₀ᴵ⁻¹ Xᵢcᵢₘ
-        # where aᵢₘ, bᵢₘ, cᵢₘ are the elements in row i and column m of the three constraint matrices, and X is
-        # the inverse DFTed form of the vector [τ⁰, τ¹, ..., τⁱ⁻¹]. All of these can be done in O(IlogI) time.
+        # where aᵢₘ, bᵢₘ, cᵢₘ are the elements in row i and column m of the three constraint matrices,
+        # and X is the inverse DFTed form of the vector [τ⁰, τ¹, ..., τⁱ⁻¹]. All of these can be done in
+        # O(IlogI) time.
         xI = list(fft.pows(τ, I, ρ))
         XI = fft.ifft(xI, p, ρ)
         AτM = [0x00 for _ in range(M)]
@@ -117,10 +119,10 @@ class Assembly:
         #     A(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘAₘ(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘaᵢₘ
         #     B(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘBₘ(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘbᵢₘ
         #     C(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘCₘ(pⁱ) = Σₘ₌₀ᴹ⁻¹ wₘcᵢₘ
-        # for i in [0, I), so we can simply get A(X), B(X), C(X) using iFFT. However, since Z(pⁱ) always equals
-        # 0, it's not possible to calculate H(X) = (A(X) * B(X) - C(X)) / Z(X) in this domain. Instead, we use
-        # coset FFT to get A(pⁱq), B(pⁱq), C(pⁱq), then calculate corresponding H(pⁱq) (note that Z(pⁱq) = -2),
-        # and finally recover H(X) using the coset iFFT.
+        # for i in [0, I), thus we can simply obtain A(X), B(X), C(X) using iFFT. However, since Z(pⁱ)
+        # always equals 0, it is not possible to calculate H(X) = (A(X) * B(X) - C(X)) / Z(X) in this
+        # domain. Instead, we use coset FFT to calculate A(pⁱq), B(pⁱq), C(pⁱq) first, then calculate
+        # corresponding H(pⁱq) (note that Z(pⁱq) = -2), and finally recover H(X) using the coset iFFT.
         AwI = fft.ifft(awN + [0x00] * (I - N), p, ρ)
         BwI = fft.ifft(bwN + [0x00] * (I - N), p, ρ)
         CwI = fft.ifft(cwN + [0x00] * (I - N), p, ρ)
@@ -147,8 +149,9 @@ class Assembly:
     # the following methods are used to construct the arithmetic circuits
     def MKWIRE(self, func, name = None):
         # Add a new variable that defined by the given function to the witness vector.
-        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % P) will add a new variable x
-        # to the witness vector, and its value is the product of the values of y and z.
+        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
+        # that is defined by the product of the values of y and z in the witness vector, and then return
+        # this variable. If name is specified, the variable is public.
         i = len(self.wires)
         self.wires.append(func)
         # if name is specified, the variable is public
@@ -156,8 +159,8 @@ class Assembly:
             self.stmts[i] = name
         return Var({i: 0x01})
     def MKGATE(self, xGal, yGal, zGal, *, msg = 'assertion error'):
-        # Add a constraint to the circuit, the constraint is represented as a tuple (x, y, z, msg),
-        # which means x * y = z, the msg is the error message when the constraint is not satisfied.
+        # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
+        # x * y = z, msg is the error message when the constraint is not satisfied.
         if isinstance(xGal, int) and isinstance(yGal, int) and isinstance(zGal, int):
             assert xGal * yGal % ρ == zGal, msg
             return
@@ -175,14 +178,14 @@ class Assembly:
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % ρ)})
-        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
+        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert to a constant if the only non-zero term is the 0-th (constant) term
     def SUB(self, xGal, yGal):
         if isinstance(yGal, int):
             yGal = Var({0: yGal})
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
-        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert zGal to a constant if the only non-zero term is the 0-th (constant) term
+        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert to a constant if the only non-zero term is the 0-th (constant) term
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
         if xGal == 0x00 or yGal == 0x00:
             return 0x00
@@ -196,7 +199,7 @@ class Assembly:
         self.MKGATE(xGal, yGal, zGal, msg = msg)
         return zGal
     def DIV(self, xGal, yGal, *, msg = 'division error'):
-        # Note that this division is not the usual division, it is the division in the finite field GF(P).
+        # Division in the finite field GF(P).
         if xGal == 0x00:
             return 0x00
         if yGal == 0x00:
@@ -224,10 +227,10 @@ class Assembly:
         return rGal
     # type conversion operations on variables
     def BINARY(self, xGal, xLen, *, msg = 'binarization error'):
-        # Convert x to a binary list with the given bit length, for example, BINARY(5, 3) will return [1, 0, 1]
-        # and BINARY(5, 2) will raise an error because 5 is too large for 2 bits. Note that the bit length
-        # should be less than the bit length of the prime number P, since otherwise the binary representation
-        # of x will be non-unique.
+        # Convert x to a binary list with the given bit length, for example, BINARY(5, 3) will return
+        # [1, 0, 1] and BINARY(5, 2) will raise an error because 5 is too large for 2 bits. Notice that
+        # the bit length should be less than the bit length of the prime number P, since otherwise the
+        # binary representation of x will be non-unique.
         if not 0 <= xLen < ρ.bit_length():
             raise ValueError('invalid bit length')
         if isinstance(xGal, int):
@@ -243,11 +246,11 @@ class Assembly:
         self.ASSERT_EQ(xGal, tGal, msg = msg)
         return xBin
     def GALOIS(self, xBin):
-        # Convert a binary list to an galios field element, for example, GALOIS([1, 0, 1]) will return 5.
+        # Convert a binary list to a galios field element, for example, GALOIS([1, 0, 1]) will return 5.
         return self.SUM(self.MUL(bBit, 0x02 ** iLen) for iLen, bBit in enumerate(xBin))
     def ENUM(self, xGal, kSet, *, msg = 'enumerization error'):
-        # Convert x to an enum value, for example, ENUM(3, {1, 3, 5, 7}) will return {1: 0, 3: 1, 5: 0, 7: 0}
-        # and ENUM(2, {1, 3, 5, 7}) will raise an error because 2 is not in the enum set.
+        # Convert x to an enum value, for example, ENUM(3, {1, 3, 5}) will return {1: 0, 3: 1, 5: 0},
+        # and ENUM(2, {1, 3, 5}) will raise an error because 2 is not in the set.
         if isinstance(xGal, int):
             xKey = {kInt: 0x01 - pow(xGal - kInt, ρ - 1, ρ) for kInt in kSet}
             assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
@@ -268,8 +271,9 @@ class Assembly:
         return xKey
     # conditional expression and get/set operations on lists and dictionaries
     def IF(self, bBit, tItm, fItm):
-        # Conditional expression, b is a boolean value, t and f are the true and false branches (can be scalars,
-        # (multi-dimensional) lists, dictionaries, or tuples, but should have the same shape).
+        # Conditional expression, b is a boolean value, t and f are the true and false branches, which
+        # can be scalars, (multi-dimensional) lists, dictionaries, or tuples, but should have the same
+        # shape.
         # optimize when b is a constant
         if bBit == 0x01:
             return tItm
@@ -284,8 +288,8 @@ class Assembly:
         return self.ADD(self.MUL(bBit, self.SUB(tItm, fItm)), fItm)
     def GETBYBIN(self, lSpc, iBin, cBit = 0x01, *, msg = 'binary index out of range'):
         # Get the value of a (multi-dimensional) list by the given binary index.
-        # For example, GETBYBIN([[1, 2], [3, 4], [5, 6]], [1, 0]) will return [5, 6]. The binary index can be any
-        # length, however, the value it represents should be less than the length of the list.
+        # For example, GETBYBIN([[1, 2], [3, 4], [5, 6]], [1, 0]) will return [5, 6]. The binary index
+        # can be any length, but the value it represents should be less than the length of the list.
         iLen = 2 ** len(iBin)
         if len(lSpc) >= iLen:
             lSpc = lSpc[:iLen]
@@ -299,8 +303,8 @@ class Assembly:
             return self.GETBYBIN(lSpc, iBin, cBit)
         return self.IF(iBit, self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)), self.GETBYBIN(lSpc[:iLen], iBin, self.AND(cBit, self.NOT(iBit))))
     def GETBYKEY(self, lSpc, iKey):
-        # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an enum value.
-        # For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
+        # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an
+        # enum value. For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
         iItr = iter(iKey.items())
         kInt, iBit = next(iItr)
         vItm = lSpc[kInt]
@@ -308,10 +312,10 @@ class Assembly:
             vItm = self.IF(iBit, lSpc[kInt], vItm)
         return vItm
     def SETBYKEY(self, vItm, lSpc, *iKes, cBit = 0x01):
-        # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return a new
-        # (multi-dimensional) list or dictionary with the value set.
-        # For example, SETBYKEY(5, {2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}, {0: 0, 1: 1}) means to set the value
-        # of {2: [1, 2], 3: [3, 4]}[2][1] to 5, so the result will be {2: [1, 5], 3: [3, 4]}.
+        # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return
+        # a new (multi-dimensional) list or dictionary with the value set.
+        # For example, SETBYKEY(5, {2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}, {0: 0, 1: 1}) means to set the
+        # value of {2: [1, 2], 3: [3, 4]}[2][1] to 5, so the result will be {2: [1, 5], 3: [3, 4]}.
         if len(iKes) == 0:
             return self.IF(cBit, vItm, lSpc)
         iKey, *iKes = iKes
@@ -470,7 +474,8 @@ class Assembly:
         bLen = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 0x01), bLen, msg = msg)
     def PARAM(self, name, public = False):
-        # Add an input parameter to the circuit, the value of the parameter can be set when calling the prove method.
+        # Add an input parameter to the circuit, the value of the parameter can be set when calling the
+        # prove method.
         return self.MKWIRE(lambda getw, args: args[name], name if public else None)
     def REVEAL(self, name, xGal, *, msg = 'reveal error'):
         # Make a variable public.
@@ -521,8 +526,8 @@ def shape(x):
         raise TypeError('inconsistent shape of dict values')
     raise TypeError('unsupported data type')
 class Compiler(ast.NodeVisitor, Assembly):
-    # The Compiler class is a wrapper of the Assembly class, it compiles the given Python code to the arithmetic
-    # circuits. The Python code should be written in a restricted subset of Python.
+    # The Compiler class is a wrapper of the Assembly class, it compiles the given Python code to the
+    # arithmetic circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
         ast.NodeVisitor.__init__(self)
         Assembly.__init__(self)
