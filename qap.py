@@ -252,13 +252,13 @@ class Assembly:
         # Convert x to an enum value, for example, ENUM(3, {1, 3, 5}) will return {1: 0, 3: 1, 5: 0},
         # and ENUM(2, {1, 3, 5}) will raise an error because 2 is not in the set.
         if isinstance(xGal, int):
-            xKey = {kInt: 0x01 - pow(xGal - kInt, ρ - 1, ρ) for kInt in kSet}
+            xKey = {kInt: 0x01 if (xGal - kInt) % ρ == 0x00 else 0x00 for kInt in kSet}
             assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
             return xKey
         xFrz = tuple(sorted(xGal.data.items()))
         if (xKey := self.enums.get(kSet, {}).get(xFrz)) is not None:
             return xKey
-        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 - pow(getw(xGal) - kInt, ρ - 1, ρ))
+        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 if (getw(xGal) - kInt) % ρ == 0x00 else 0x00)
         xKey = {kInt: 0x00 for kInt in kSet}
         for kInt in kSet:
             xBit = xKey[kInt] = bind(kInt)
