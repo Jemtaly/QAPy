@@ -29,11 +29,11 @@ class Var:
     # Besides, constants are always represented by the integer itself.
     def __init__(self, data):
         self.data = data
-class Assembly:
-    # The Assembly class is used to construct the arithmetic circuits, it provides a set of methods to
+class Circuit:
+    # The Circuit class is used to construct the arithmetic circuits, it provides a set of methods to
     # create and manipulate the variables, and to perform arithmetic operations on them. The arithmetic
-    # operations are represented as the constraints in the circuit. Besides, the Assembly class also
-    # provides the setup, prove, and verify methods of the Groth16 zk-SNARK.
+    # operations are represented as the constraints in the circuit. Besides, this class also implements
+    # the setup, prove, and verify methods of the Groth16 zk-SNARK.
     def __init__(self):
         self.gates = [] # the constraints in the circuit
         self.wires = [lambda getw, args: 1] # the functions that represent the variables, used to generate the witness vector
@@ -525,12 +525,12 @@ def shape(x):
             return (frozenset(x), *outer), inner
         raise TypeError('inconsistent shape of dict values')
     raise TypeError('unsupported data type')
-class Compiler(ast.NodeVisitor, Assembly):
-    # The Compiler class is a wrapper of the Assembly class, it compiles the given Python code to the
+class Compiler(ast.NodeVisitor, Circuit):
+    # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
     # arithmetic circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
         ast.NodeVisitor.__init__(self)
-        Assembly.__init__(self)
+        Circuit.__init__(self)
         self.stack = [{
             'range': lambda *args: range(*map(asint, args)),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
