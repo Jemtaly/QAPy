@@ -35,9 +35,9 @@ class Circuit:
     # operations are represented as the constraints in the circuit. Besides, this class also implements
     # the setup, prove, and verify methods of the Groth16 zk-SNARK.
     def __init__(self):
-        self.gates = [] # the constraints in the circuit
-        self.wires = [lambda getw, args: 1] # the functions that represent the variables, used to generate the witness vector
-        self.stmts = {0: 'unit'} # the public variables in the witness, keys are the indices of the variables in the witness vector
+        self.gates = [] # the constraints in the circuit, see the MKGATE method for details
+        self.wires = [lambda getw, args: 1] # functions to generate the variables in the witness vector, the 0-th variable is always 1
+        self.stmts = {0: '1'} # the public variables, keys are their indices in the witness vector, and values are their names
         self.enums = {} # memoization of the enum values
     def gate_count(self):
         return len(self.gates)
@@ -366,11 +366,17 @@ class Circuit:
     def ASSERT_ISBOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
         self.MKGATE(xGal, xGal, xGal, msg = msg)
     # bitwise operations on binary lists
-    def ROTL(self, xBin, rLen):
-        rLen = -rLen % len(xBin)
+    def SHL(self, xBin, rLen):
+        rLen = rLen % len(xBin)
+        return [0x00] * rLen + xBin[:len(xBin) - rLen]
+    def SHR(self, xBin, rLen):
+        rLen = rLen % len(xBin)
+        return xBin[rLen:] + [0x00] * rLen
+    def ROL(self, xBin, rLen):
+        rLen = len(xBin) - rLen % len(xBin)
         return xBin[rLen:] + xBin[:rLen]
-    def ROTR(self, xBin, rLen):
-        rLen = +rLen % len(xBin)
+    def ROR(self, xBin, rLen):
+        rLen = rLen % len(xBin)
         return xBin[rLen:] + xBin[:rLen]
     def BITNOT(self, xBin):
         return [self.NOT(xBit) for xBit in xBin]
@@ -821,9 +827,9 @@ class Compiler(ast.NodeVisitor, Circuit):
         if isinstance(node.op, ast.BitXor):
             return self.BITXOR(asbin(left), asbin(right))
         if isinstance(node.op, ast.LShift):
-            return self.ROTL(asbin(left), asint(right))
+            return self.SHL(asbin(left), asint(right))
         if isinstance(node.op, ast.RShift):
-            return self.ROTR(asbin(left), asint(right))
+            return self.SHR(asbin(left), asint(right))
         raise SyntaxError('unsupported binary operation')
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)
@@ -893,20 +899,36 @@ if __name__ == '__main__':
     with Timer('Compiling program...'):
         asm = Compiler()
         asm.visit(ast.parse(
-            "P0 = lambda x: x ^ x << 9 ^ x << 17\n"
-            "P1 = lambda x: x ^ x << 15 ^ x << 23\n"
-            "F0 = lambda x, y, z: x ^ y ^ z\n"
-            "F1 = lambda x, y, z: x & y | z & (x | y)\n"
-            "G0 = lambda x, y, z: x ^ y ^ z\n"
-            "G1 = lambda x, y, z: x & y | z & ~x\n"
-            "T0 = b32(0x79cc4519)\n"
-            "T1 = b32(0x7a879d8a)\n"
+            "ROR = lambda x, r: x >> r | x << 32 - r\n"
+            "CHO = lambda x, y, z: [y[i] if x[i] else z[i] for i in range(32)]\n"
+            "TMP = lambda x, y, z, t: [t[i] + z[i] * (x[i] + y[i] - t[i] * 2) for i in range(32)]\n"
+            "MAJ = lambda x, y, z: TMP(x, y, z, x & y)\n"
+            "K = [\n"
+            "    b32(0x428A2F98), b32(0x71374491), b32(0xB5C0FBCF), b32(0xE9B5DBA5),\n"
+            "    b32(0x3956C25B), b32(0x59F111F1), b32(0x923F82A4), b32(0xAB1C5ED5),\n"
+            "    b32(0xD807AA98), b32(0x12835B01), b32(0x243185BE), b32(0x550C7DC3),\n"
+            "    b32(0x72BE5D74), b32(0x80DEB1FE), b32(0x9BDC06A7), b32(0xC19BF174),\n"
+            "    b32(0xE49B69C1), b32(0xEFBE4786), b32(0x0FC19DC6), b32(0x240CA1CC),\n"
+            "    b32(0x2DE92C6F), b32(0x4A7484AA), b32(0x5CB0A9DC), b32(0x76F988DA),\n"
+            "    b32(0x983E5152), b32(0xA831C66D), b32(0xB00327C8), b32(0xBF597FC7),\n"
+            "    b32(0xC6E00BF3), b32(0xD5A79147), b32(0x06CA6351), b32(0x14292967),\n"
+            "    b32(0x27B70A85), b32(0x2E1B2138), b32(0x4D2C6DFC), b32(0x53380D13),\n"
+            "    b32(0x650A7354), b32(0x766A0ABB), b32(0x81C2C92E), b32(0x92722C85),\n"
+            "    b32(0xA2BFE8A1), b32(0xA81A664B), b32(0xC24B8B70), b32(0xC76C51A3),\n"
+            "    b32(0xD192E819), b32(0xD6990624), b32(0xF40E3585), b32(0x106AA070),\n"
+            "    b32(0x19A4C116), b32(0x1E376C08), b32(0x2748774C), b32(0x34B0BCB5),\n"
+            "    b32(0x391C0CB3), b32(0x4ED8AA4A), b32(0x5B9CCA4F), b32(0x682e6ff3),\n"
+            "    b32(0x748f82ee), b32(0x78a5636f), b32(0x84c87814), b32(0x8cc70208),\n"
+            "    b32(0x90befffa), b32(0xa4506ceb), b32(0xbef9a3f7), b32(0xc67178f2),\n"
+            "]\n"
             "def compress(V, I):\n"
-            "    W = [b32(0) for _ in range(68)]\n"
-            "    for j in range(0, 16):\n"
+            "    W = [b32(0) for _ in range(64)]\n"
+            "    for j in range(16):\n"
             "        W[j] = I[j]\n"
-            "    for j in range(16, 68):\n"
-            "        W[j] = P1(W[j - 16] ^ W[j - 9] ^ W[j - 3] << 15) ^ W[j - 13] << 7 ^ W[j - 6]\n"
+            "    for j in range(16, 64):\n"
+            "        S0 = ROR(W[j - 15], 7) ^ ROR(W[j - 15], 18) ^ W[j - 15] >> 3\n"
+            "        S1 = ROR(W[j - 2], 17) ^ ROR(W[j - 2], 19) ^ W[j - 2] >> 10\n"
+            "        W[j] = {W[j - 16], S0, W[j - 7], S1}\n"
             "    A = V[0]\n"
             "    B = V[1]\n"
             "    C = V[2]\n"
@@ -915,30 +937,24 @@ if __name__ == '__main__':
             "    F = V[5]\n"
             "    G = V[6]\n"
             "    H = V[7]\n"
-            "    for j in range(0, 64):\n"
-            "        if j < 16:\n"
-            "            SS1 = {A << 12, E, T0 << j} << 7\n"
-            "            SS2 = SS1 ^ A << 12\n"
-            "            TT1 = {F0(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
-            "            TT2 = {G0(E, F, G), H, SS1, W[j]}\n"
-            "        else:\n"
-            "            SS1 = {A << 12, E, T1 << j} << 7\n"
-            "            SS2 = SS1 ^ A << 12\n"
-            "            TT1 = {F1(A, B, C), D, SS2, W[j] ^ W[j + 4]}\n"
-            "            TT2 = {G1(E, F, G), H, SS1, W[j]}\n"
-            "        A, B, C, D, E, F, G, H = TT1, A, B << 9, C, P0(TT2), E, F << 19, G\n"
-            "    V[0] = A ^ V[0]\n"
-            "    V[1] = B ^ V[1]\n"
-            "    V[2] = C ^ V[2]\n"
-            "    V[3] = D ^ V[3]\n"
-            "    V[4] = E ^ V[4]\n"
-            "    V[5] = F ^ V[5]\n"
-            "    V[6] = G ^ V[6]\n"
-            "    V[7] = H ^ V[7]\n"
+            "    for j in range(64):\n"
+            "        S0 = ROR(A, 2) ^ ROR(A, 13) ^ ROR(A, 22)\n"
+            "        MJ = MAJ(A, B, C)\n"
+            "        S1 = ROR(E, 6) ^ ROR(E, 11) ^ ROR(E, 25)\n"
+            "        CH = CHO(E, F, G)\n"
+            "        A, B, C, D, E, F, G, H = {H, S1, CH, K[j], W[j], S0, MJ}, A, B, C, {H, S1, CH, K[j], W[j], D}, E, F, G\n"
+            "    V[0] = A + V[0]\n"
+            "    V[1] = B + V[1]\n"
+            "    V[2] = C + V[2]\n"
+            "    V[3] = D + V[3]\n"
+            "    V[4] = E + V[4]\n"
+            "    V[5] = F + V[5]\n"
+            "    V[6] = G + V[6]\n"
+            "    V[7] = H + V[7]\n"
             "    return V\n"
             "V = [\n"
-            "    b32(0x7380166f), b32(0x4914b2b9), b32(0x172442d7), b32(0xda8a0600),\n"
-            "    b32(0xa96f30bc), b32(0x163138aa), b32(0xe38dee4d), b32(0xb0fb0e4e),\n"
+            "    b32(0x6A09E667), b32(0xBB67AE85), b32(0x3C6EF372), b32(0xA54FF53A),\n"
+            "    b32(0x510E527F), b32(0x9B05688C), b32(0x1F83D9AB), b32(0x5BE0CD19),\n"
             "]\n"
             "W = [b32(private(fmt('W[{:#04x}]', i))) for i in range(16)]\n"
             "V = compress(V, W)\n"
