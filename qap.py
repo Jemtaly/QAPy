@@ -161,9 +161,13 @@ class Circuit:
     def MKGATE(self, xGal, yGal, zGal, *, msg = 'assertion error'):
         # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
         # x * y = z, msg is the error message when the constraint is not satisfied.
-        if isinstance(xGal, int) and isinstance(yGal, int) and isinstance(zGal, int):
-            assert xGal * yGal % ρ == zGal, msg
-            return
+        if isinstance(zGal, int):
+            if isinstance(xGal, int) and isinstance(yGal, int):
+                assert xGal * yGal % ρ == zGal, msg
+                return
+            if xGal == 0x00 or yGal == 0x00:
+                assert zGal == 0x00, msg
+                return
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         if isinstance(yGal, int):
@@ -187,10 +191,10 @@ class Circuit:
         zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
         return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert to a constant if the only non-zero term is the 0-th (constant) term
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
-        if xGal == 0x00 or yGal == 0x00:
-            return 0x00
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * yGal % ρ
+        if xGal == 0x00 or yGal == 0x00:
+            return 0x00
         if isinstance(yGal, int):
             return Var({k: v * yGal % ρ for k, v in xGal.data.items()})
         if isinstance(xGal, int):
@@ -200,12 +204,10 @@ class Circuit:
         return zGal
     def DIV(self, xGal, yGal, *, msg = 'division error'):
         # Division in the finite field GF(P).
-        if xGal == 0x00:
-            return 0x00
-        if yGal == 0x00:
-            raise ZeroDivisionError
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * pow(yGal, -1, ρ) % ρ
+        if xGal == 0x00:
+            return 0x00
         if isinstance(yGal, int):
             return Var({k: v * pow(yGal, -1, ρ) % ρ for k, v in xGal.data.items()})
         if isinstance(xGal, int):
@@ -301,7 +303,7 @@ class Circuit:
         if len(lSpc) <= iLen:
             self.MKGATE(cBit, iBit, 0x00, msg = msg)
             return self.GETBYBIN(lSpc, iBin, cBit)
-        return self.IF(iBit, self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)), self.GETBYBIN(lSpc[:iLen], iBin, self.AND(cBit, self.NOT(iBit))))
+        return self.IF(iBit, self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)), self.GETBYBIN(lSpc[:iLen], iBin))
     def GETBYKEY(self, lSpc, iKey):
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an
         # enum value. For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
@@ -360,11 +362,14 @@ class Circuit:
     def ASSERT_LT(self, xGal, yGal, bLen, *, msg = 'LT assertion failed'): # assert 0x00 < yGal - xGal <= 0x02 ** bLen
         return self.BINARY(self.SUB(self.SUB(yGal, xGal), 0x01), bLen, msg = msg)
     def ASSERT_EQ(self, xGal, yGal, *, msg = 'EQ assertion failed'):
-        self.MKGATE(0x01, xGal, yGal, msg = msg)
+        self.MKGATE(0x00, 0x00, self.SUB(xGal, yGal), msg = msg)
     def ASSERT_NE(self, xGal, yGal, *, msg = 'NE assertion failed'):
         self.DIV(0x01, self.SUB(xGal, yGal), msg = msg)
     def ASSERT_ISBOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
         self.MKGATE(xGal, xGal, xGal, msg = msg)
+    def ASSERT_IN(self, xGal, kSet, *, msg = 'IN assertion failed'):
+        # assert x is in the set
+        return self.ENUM(xGal, kSet, msg = msg)
     # bitwise operations on binary lists
     def SHL(self, xBin, rLen):
         rLen = rLen % len(xBin)
@@ -921,6 +926,10 @@ if __name__ == '__main__':
             "    b32(0x748f82ee), b32(0x78a5636f), b32(0x84c87814), b32(0x8cc70208),\n"
             "    b32(0x90befffa), b32(0xa4506ceb), b32(0xbef9a3f7), b32(0xc67178f2),\n"
             "]\n"
+            "V = [\n"
+            "    b32(0x6A09E667), b32(0xBB67AE85), b32(0x3C6EF372), b32(0xA54FF53A),\n"
+            "    b32(0x510E527F), b32(0x9B05688C), b32(0x1F83D9AB), b32(0x5BE0CD19),\n"
+            "]\n"
             "def compress(V, I):\n"
             "    W = [b32(0) for _ in range(64)]\n"
             "    for j in range(16):\n"
@@ -952,10 +961,6 @@ if __name__ == '__main__':
             "    V[6] = G + V[6]\n"
             "    V[7] = H + V[7]\n"
             "    return V\n"
-            "V = [\n"
-            "    b32(0x6A09E667), b32(0xBB67AE85), b32(0x3C6EF372), b32(0xA54FF53A),\n"
-            "    b32(0x510E527F), b32(0x9B05688C), b32(0x1F83D9AB), b32(0x5BE0CD19),\n"
-            "]\n"
             "W = [b32(private(fmt('W[{:#04x}]', i))) for i in range(16)]\n"
             "V = compress(V, W)\n"
             "for i in range(8):\n"
