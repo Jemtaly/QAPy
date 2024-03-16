@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import time
 import fft
+import waksman
 import ast
 import random
 import pymcl
@@ -177,19 +178,21 @@ class Circuit:
         self.gates.append((xGal, yGal, zGal, msg))
     # arithmetic operations on variables
     def ADD(self, xGal, yGal):
+        xGal = Var({0: xGal}) if isinstance(xGal, int) else Var(xGal.data.copy())
         if isinstance(yGal, int):
-            yGal = Var({0: yGal})
-        if isinstance(xGal, int):
-            xGal = Var({0: xGal})
-        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % ρ)})
-        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert to a constant if the only non-zero term is the 0-th (constant) term
+            xGal.data[0] = (xGal.data.get(0, 0x00) + yGal) % ρ
+        else:
+            for k, v in yGal.data.items():
+                xGal.data[k] = (xGal.data.get(k, 0x00) + v) % ρ
+        return xGal.data.get(0, 0x00) if xGal.data.keys() <= {0} else xGal
     def SUB(self, xGal, yGal):
+        xGal = Var({0: xGal}) if isinstance(xGal, int) else Var(xGal.data.copy())
         if isinstance(yGal, int):
-            yGal = Var({0: yGal})
-        if isinstance(xGal, int):
-            xGal = Var({0: xGal})
-        zGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
-        return zGal.data.get(0, 0x00) if zGal.data.keys() <= {0} else zGal # convert to a constant if the only non-zero term is the 0-th (constant) term
+            xGal.data[0] = (xGal.data.get(0, 0x00) - yGal) % ρ
+        else:
+            for k, v in yGal.data.items():
+                xGal.data[k] = (xGal.data.get(k, 0x00) - v) % ρ
+        return xGal.data.get(0, 0x00) if xGal.data.keys() <= {0} else xGal
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * yGal % ρ
@@ -224,9 +227,14 @@ class Circuit:
             rGal = self.MUL(rGal, kGal)
         return rGal
     def SUM(self, iLst, rGal = 0x00):
+        rGal = Var({0: rGal}) if isinstance(rGal, int) else Var(rGal.data.copy())
         for iGal in iLst:
-            rGal = self.ADD(rGal, iGal)
-        return rGal
+            if isinstance(iGal, int):
+                rGal.data[0] = (rGal.data.get(0, 0x00) + iGal) % ρ
+            else:
+                for k, v in iGal.data.items():
+                    rGal.data[k] = (rGal.data.get(k, 0x00) + v) % ρ
+        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
     # type conversion operations on variables
     def BINARY(self, xGal, xLen, *, msg = 'binarization error'):
         # Convert x to a binary list with the given bit length, for example, BINARY(5, 3) will return
@@ -367,6 +375,43 @@ class Circuit:
         self.DIV(0x01, self.SUB(xGal, yGal), msg = msg)
     def ASSERT_ISBOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
         self.MKGATE(xGal, xGal, xGal, msg = msg)
+    def ASSERT_ISPERM(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
+        nLen = len(lLst)
+        LLst = [Var({0: sGal}) if isinstance(sGal, int) else sGal for sGal in lLst]
+        RLst = [Var({0: dGal}) if isinstance(dGal, int) else dGal for dGal in rLst]
+        bind = lambda iLen: self.MKWIRE(lambda getw, args: waksman.genbits(waksman.getperm(list(map(getw, LLst)), list(map(getw, RLst))))[iLen] % ρ)
+        if nLen == 0:
+            return
+        if nLen == 1:
+            self.ASSERT_EQ(lLst[0], rLst[0], msg = msg)
+            return
+        if nLen == 2:
+            cBit = bind(0)
+            self.ASSERT_ISBOOL(cBit)
+            self.MKGATE(cBit, self.SUB(lLst[1], lLst[0]), self.SUB(rLst[0], lLst[0]), msg = msg)
+            self.MKGATE(cBit, self.SUB(lLst[0], lLst[1]), self.SUB(rLst[1], lLst[1]), msg = msg)
+            return
+        lLst = lLst.copy()
+        lLen = nLen // 2
+        for iLen in range(lLen):
+            cBit = bind(iLen)
+            self.ASSERT_ISBOOL(cBit)
+            lLst[iLen * 2], lLst[iLen * 2 + 1] = self.IF(cBit, (lLst[iLen * 2 + 1], lLst[iLen * 2]), (lLst[iLen * 2], lLst[iLen * 2 + 1]))
+        rLst = rLst.copy()
+        rLen = nLen // 2 + nLen % 2 - 1
+        for iLen in range(rLen):
+            cBit = bind(iLen - rLen)
+            self.ASSERT_ISBOOL(cBit)
+            rLst[iLen * 2], rLst[iLen * 2 + 1] = self.IF(cBit, (rLst[iLen * 2 + 1], rLst[iLen * 2]), (rLst[iLen * 2], rLst[iLen * 2 + 1]))
+        luLs = lLst[0::2]
+        ruLs = rLst[0::2]
+        ldLs = lLst[1::2]
+        rdLs = rLst[1::2]
+        if nLen % 2 == 1:
+            ldLs.append(luLs.pop())
+            rdLs.append(ruLs.pop())
+        self.ASSERT_ISPERM(luLs, ruLs, msg = msg)
+        self.ASSERT_ISPERM(ldLs, rdLs, msg = msg)
     def ASSERT_IN(self, xGal, kSet, *, msg = 'IN assertion failed'):
         # assert x is in the set
         return self.ENUM(xGal, kSet, msg = msg)
@@ -555,6 +600,7 @@ class Compiler(ast.NodeVisitor, Circuit):
             'private': lambda s: self.PARAM(asstr(s)),
             'public': lambda s: self.PARAM(asstr(s), public = True),
             'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
+            'isperm': lambda s, d: self.ASSERT_ISPERM(list(map(asgal, s)), list(map(asgal, d))),
         }] # the stack is used to store the local variables
     def visit_Module(self, node):
         for stmt in node.body:
