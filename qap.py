@@ -379,7 +379,7 @@ class Circuit:
         nLen = len(lLst)
         LLst = [Var({0: sGal}) if isinstance(sGal, int) else sGal for sGal in lLst]
         RLst = [Var({0: dGal}) if isinstance(dGal, int) else dGal for dGal in rLst]
-        bind = lambda iLen: self.MKWIRE(lambda getw, args: waksman.genbits(waksman.getperm(list(map(getw, LLst)), list(map(getw, RLst))))[iLen] % ρ)
+        bind = lambda iLen: self.MKWIRE(lambda getw, args: waksman.genbits(list(map(getw, LLst)), list(map(getw, RLst)))[iLen] % ρ)
         if nLen == 0:
             return
         if nLen == 1:
@@ -391,25 +391,19 @@ class Circuit:
             self.MKGATE(cBit, self.SUB(lLst[1], lLst[0]), self.SUB(rLst[0], lLst[0]), msg = msg)
             self.MKGATE(cBit, self.SUB(lLst[0], lLst[1]), self.SUB(rLst[1], lLst[1]), msg = msg)
             return
-        lLst = lLst.copy()
+        kLen = nLen // 2
         lLen = nLen // 2
+        rLen = nLen // 2 + nLen % 2 - 1
+        luLs, ldLs = lLst[:kLen], lLst[kLen:]
+        ruLs, rdLs = rLst[:kLen], rLst[kLen:]
         for iLen in range(lLen):
             cBit = bind(iLen)
             self.ASSERT_ISBOOL(cBit)
-            lLst[iLen * 2], lLst[iLen * 2 + 1] = self.IF(cBit, (lLst[iLen * 2 + 1], lLst[iLen * 2]), (lLst[iLen * 2], lLst[iLen * 2 + 1]))
-        rLst = rLst.copy()
-        rLen = nLen // 2 + nLen % 2 - 1
+            luLs[iLen], ldLs[iLen] = self.IF(cBit, (ldLs[iLen], luLs[iLen]), (luLs[iLen], ldLs[iLen]))
         for iLen in range(rLen):
             cBit = bind(iLen - rLen)
             self.ASSERT_ISBOOL(cBit)
-            rLst[iLen * 2], rLst[iLen * 2 + 1] = self.IF(cBit, (rLst[iLen * 2 + 1], rLst[iLen * 2]), (rLst[iLen * 2], rLst[iLen * 2 + 1]))
-        luLs = lLst[0::2]
-        ruLs = rLst[0::2]
-        ldLs = lLst[1::2]
-        rdLs = rLst[1::2]
-        if nLen % 2 == 1:
-            ldLs.append(luLs.pop())
-            rdLs.append(ruLs.pop())
+            ruLs[iLen], rdLs[iLen] = self.IF(cBit, (rdLs[iLen], ruLs[iLen]), (ruLs[iLen], rdLs[iLen]))
         self.ASSERT_ISPERM(luLs, ruLs, msg = msg)
         self.ASSERT_ISPERM(ldLs, rdLs, msg = msg)
     def ASSERT_IN(self, xGal, kSet, *, msg = 'IN assertion failed'):
@@ -600,7 +594,8 @@ class Compiler(ast.NodeVisitor, Circuit):
             'private': lambda s: self.PARAM(asstr(s)),
             'public': lambda s: self.PARAM(asstr(s), public = True),
             'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
-            'isperm': lambda s, d: self.ASSERT_ISPERM(list(map(asgal, s)), list(map(asgal, d))),
+            'isperm': lambda s, d, msg: self.ASSERT_ISPERM(list(map(asgal, s)), list(map(asgal, d)), msg = asstr(msg)),
+            'mkgate': lambda x, y, z, msg: self.MKGATE(asgal(x), asgal(y), asgal(z), msg = asstr(msg)),
         }] # the stack is used to store the local variables
     def visit_Module(self, node):
         for stmt in node.body:
