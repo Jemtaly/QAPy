@@ -52,6 +52,17 @@ class Circuit:
         if isinstance(zGal, int):
             zGal = Var({0: zGal})
         self.gates.append((xGal, yGal, zGal, msg))
+    def PARAM(self, name, public = False):
+        # Add an input parameter to the circuit, the value of the parameter can be set when calling the
+        # prove method.
+        return self.MKWIRE(lambda getw, args: args[name], name if public else None)
+    def REVEAL(self, name, xGal, *, msg = 'reveal error'):
+        # Make a variable public.
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
+        rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
+        self.ASSERT_EQ(xGal, rGal, msg = msg)
+        return rGal
     # arithmetic operations on variables
     def ADD(self, xGal, yGal):
         xGal = Var({0: xGal}) if isinstance(xGal, int) else Var(xGal.data.copy())
@@ -267,6 +278,20 @@ class Circuit:
             self.MKGATE(cBit, self.SUB(lLst[1], lLst[0]), self.SUB(rLst[0], lLst[0]), msg = msg)
             self.MKGATE(cBit, self.SUB(lLst[0], lLst[1]), self.SUB(rLst[1], lLst[1]), msg = msg)
             return
+        if nLen == 3:
+            ldLs = lLst[1:]
+            rdLs = rLst[1:]
+            lBit = bind(0)
+            rBit = bind(2)
+            self.ASSERT_ISBOOL(lBit)
+            self.ASSERT_ISBOOL(rBit)
+            ldLs[0] = self.IF(lBit, ldLs[0], lLst[0])
+            rdLs[0] = self.IF(rBit, rdLs[0], rLst[0])
+            self.ASSERT_ISPERM(ldLs, rdLs, msg = msg)
+            xGal = self.MKWIRE(lambda getw, args: max(lLst[1] if getw(lBit) else lLst[0], rLst[1] if getw(rBit) else rLst[0]))
+            self.MKGATE(lBit, self.SUB(lLst[1], lLst[0]), self.SUB(xGal, lLst[0]), msg = msg)
+            self.MKGATE(rBit, self.SUB(rLst[1], rLst[0]), self.SUB(xGal, rLst[0]), msg = msg)
+            return
         kLen = nLen // 2
         lLen = nLen // 2
         rLen = nLen // 2 + nLen % 2 - 1
@@ -399,14 +424,3 @@ class Circuit:
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
         self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 0x01), bLen, msg = msg)
-    def PARAM(self, name, public = False):
-        # Add an input parameter to the circuit, the value of the parameter can be set when calling the
-        # prove method.
-        return self.MKWIRE(lambda getw, args: args[name], name if public else None)
-    def REVEAL(self, name, xGal, *, msg = 'reveal error'):
-        # Make a variable public.
-        if isinstance(xGal, int):
-            xGal = Var({0: xGal})
-        rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
-        self.ASSERT_EQ(xGal, rGal, msg = msg)
-        return rGal

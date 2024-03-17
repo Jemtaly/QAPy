@@ -1,8 +1,6 @@
 def network(n, j = 0):
-    if n == 1:
+    if n <= 1:
         return []
-    if n == 2:
-        return [(j, j + 1)]
     k = n // 2
     lbitn = n // 2
     rbitn = n // 2 + n % 2 - 1
@@ -16,10 +14,8 @@ def network(n, j = 0):
     return net
 def genbits(lft, rgt):
     n = min(len(lft), len(rgt))
-    if n == 1:
+    if n <= 1:
         return []
-    if n == 2:
-        return [lft[0] != rgt[0]]
     k = n // 2
     lbitn = n // 2
     rbitn = n // 2 + n % 2 - 1
@@ -34,8 +30,6 @@ def genbits(lft, rgt):
     # left and right bits
     lbits = [None] * lbitn
     rbits = [None] * rbitn
-    # counter for the remaining bits to be generated
-    c = lbitn + rbitn
     # generate bits
     if n % 2 == 0:
         l = n - 1
@@ -44,13 +38,11 @@ def genbits(lft, rgt):
             lbits[r % k] = r // k == 0
             r = r + k if r // k == 0 else r - k
             l = r2l[r]
-            c -= 1
             if l == k - 1:
                 break
             rbits[l % k] = l // k == 1
             l = l + k if l // k == 0 else l - k
             r = l2r[l]
-            c -= 1
     else:
         l = n - 1
         r = l2r[l]
@@ -60,28 +52,27 @@ def genbits(lft, rgt):
             lbits[r % k] = r // k == 0
             r = r + k if r // k == 0 else r - k
             l = r2l[r]
-            c -= 1
             rbits[l % k] = l // k == 1
             l = l + k if l // k == 0 else l - k
             r = l2r[l]
-            c -= 1
     # generate remaining bits
-    t = rbitn - 1
-    while c > 0:
-        while rbits[t] is not None:
-            t -= 1
-        l = t + k
+    i = rbitn
+    while True:
+        for i in reversed(range(i)):
+            if rbits[i] is None:
+                break
+        else:
+            break
+        l = i + k
         r = l2r[l]
         while True:
             lbits[r % k] = r // k == 0
             r = r + k if r // k == 0 else r - k
             l = r2l[r]
-            c -= 1
             rbits[l % k] = l // k == 1
             l = l + k if l // k == 0 else l - k
             r = l2r[l]
-            c -= 1
-            if l == t + k:
+            if l == i + k:
                 break
     # apply swaps to the left and right inputs
     ulft, dlft = lft[:k], lft[k:]
@@ -101,3 +92,15 @@ def apply(src, net, bits):
     for bit, (i, j) in zip(bits, net):
         if bit:
             src[i], src[j] = src[j], src[i]
+if __name__ == '__main__':
+    import random
+    for _ in range(1000):
+        n = random.randrange(1000, 10000)
+        net = network(n)
+        src = [random.randrange(n * n) for _ in range(n)]
+        dst = src.copy()
+        random.shuffle(dst)
+        bits = genbits(src, dst)
+        apply(src, net, bits)
+        assert src == dst
+        print(n, 'OK')
