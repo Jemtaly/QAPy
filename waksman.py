@@ -1,95 +1,95 @@
-def network(N, j = 0):
-    if N == 1:
+def network(n, j = 0):
+    if n == 1:
         return []
-    if N == 2:
+    if n == 2:
         return [(j, j + 1)]
-    K = N // 2
-    L = N // 2
-    R = N // 2 + N % 2 - 1
+    k = n // 2
+    lbitn = n // 2
+    rbitn = n // 2 + n % 2 - 1
     net = []
-    for i in range(L):
-        net.append((j + i, j + i + K))
-    net += network(K, j)
-    net += network(N - K, j + K)
-    for i in range(R):
-        net.append((j + i, j + i + K))
+    for i in range(lbitn):
+        net.append((j + i, j + i + k))
+    net += network(k, j)
+    net += network(n - k, j + k)
+    for i in range(rbitn):
+        net.append((j + i, j + i + k))
     return net
 def genbits(lft, rgt):
-    N = min(len(lft), len(rgt))
-    if N == 1:
+    n = min(len(lft), len(rgt))
+    if n == 1:
         return []
-    if N == 2:
+    if n == 2:
         return [lft[0] != rgt[0]]
-    K = N // 2
-    L = N // 2
-    R = N // 2 + N % 2 - 1
+    k = n // 2
+    lbitn = n // 2
+    rbitn = n // 2 + n % 2 - 1
     # generate lookup tables
-    lidxs = sorted(range(len(lft)), key = lft.__getitem__)
-    ridxs = sorted(range(len(rgt)), key = rgt.__getitem__)
-    l2r = [None] * len(rgt)
-    r2l = [None] * len(lft)
-    for lidx, ridx in zip(lidxs, ridxs):
-        l2r[ridx] = lidx
-        r2l[lidx] = ridx
+    ls = sorted(range(n), key = lft.__getitem__)
+    rs = sorted(range(n), key = rgt.__getitem__)
+    l2r = [None] * n
+    r2l = [None] * n
+    for l, r in zip(ls, rs):
+        l2r[r] = l
+        r2l[l] = r
     # left and right bits
-    lbits = [None] * L
-    rbits = [None] * R
+    lbits = [None] * lbitn
+    rbits = [None] * rbitn
     # counter for the remaining bits to be generated
-    c = L + R
+    c = lbitn + rbitn
     # generate bits
-    if N % 2 == 0:
-        l = N - 1
+    if n % 2 == 0:
+        l = n - 1
         r = l2r[l]
         while True:
-            lbits[r % K] = r // K == 0
-            r = r + K if r // K == 0 else r - K
+            lbits[r % k] = r // k == 0
+            r = r + k if r // k == 0 else r - k
             l = r2l[r]
             c -= 1
-            if l == K - 1:
+            if l == k - 1:
                 break
-            rbits[l % K] = l // K == 1
-            l = l + K if l // K == 0 else l - K
+            rbits[l % k] = l // k == 1
+            l = l + k if l // k == 0 else l - k
             r = l2r[l]
             c -= 1
     else:
-        l = N - 1
+        l = n - 1
         r = l2r[l]
         while True:
-            if r == N - 1:
+            if r == n - 1:
                 break
-            lbits[r % K] = r // K == 0
-            r = r + K if r // K == 0 else r - K
+            lbits[r % k] = r // k == 0
+            r = r + k if r // k == 0 else r - k
             l = r2l[r]
             c -= 1
-            rbits[l % K] = l // K == 1
-            l = l + K if l // K == 0 else l - K
+            rbits[l % k] = l // k == 1
+            l = l + k if l // k == 0 else l - k
             r = l2r[l]
             c -= 1
     # generate remaining bits
-    t = R - 1
+    t = rbitn - 1
     while c > 0:
         while rbits[t] is not None:
             t -= 1
-        l = K + t
+        l = t + k
         r = l2r[l]
         while True:
-            lbits[r % K] = r // K == 0
-            r = r + K if r // K == 0 else r - K
+            lbits[r % k] = r // k == 0
+            r = r + k if r // k == 0 else r - k
             l = r2l[r]
             c -= 1
-            rbits[l % K] = l // K == 1
-            l = l + K if l // K == 0 else l - K
+            rbits[l % k] = l // k == 1
+            l = l + k if l // k == 0 else l - k
             r = l2r[l]
             c -= 1
-            if l == K + t:
+            if l == t + k:
                 break
     # apply swaps to the left and right inputs
-    ulft, urgt = lft[:K], rgt[:K]
-    dlft, drgt = lft[K:], rgt[K:]
-    for i in range(L):
+    ulft, dlft = lft[:k], lft[k:]
+    for i in range(lbitn):
         if lbits[i]:
             ulft[i], dlft[i] = dlft[i], ulft[i]
-    for i in range(R):
+    urgt, drgt = rgt[:k], rgt[k:]
+    for i in range(rbitn):
         if rbits[i]:
             urgt[i], drgt[i] = drgt[i], urgt[i]
     # generate bits for the upper and lower halves
