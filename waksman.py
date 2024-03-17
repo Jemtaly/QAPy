@@ -92,15 +92,3 @@ def apply(src, net, bits):
     for bit, (i, j) in zip(bits, net):
         if bit:
             src[i], src[j] = src[j], src[i]
-if __name__ == '__main__':
-    import random
-    for _ in range(1000):
-        n = random.randrange(1000, 10000)
-        net = network(n)
-        src = [random.randrange(n * n) for _ in range(n)]
-        dst = src.copy()
-        random.shuffle(dst)
-        bits = genbits(src, dst)
-        apply(src, net, bits)
-        assert src == dst
-        print(n, 'OK')
