@@ -42,6 +42,9 @@ class Circuit:
         if isinstance(zGal, int):
             zGal = Var({0: zGal})
         self.gates.append((xGal, yGal, zGal, msg))
+    def MKFUNC(self, func):
+        # Call the given function when generating the witness vector, the return values will be ignored.
+        self.wires.append((-2, func))
     def MKWIRE(self, func, name = None):
         # Add a new variable that defined by the given function to the witness vector.
         # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
@@ -61,9 +64,6 @@ class Circuit:
         self.wires.append((n, func))
         self.wire_count += n
         return [Var({i + j: 0x01}) for j in range(n)]
-    def MKFUNC(self, func):
-        # Call the given function when generating the witness vector, the return values will be ignored.
-        self.wires.append((-2, func))
     def PARAM(self, name, public = False):
         # Add an input parameter to the circuit, the value of the parameter can be set when calling the
         # prove method.
@@ -73,25 +73,23 @@ class Circuit:
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
-        self.ASSERT_EQ(xGal, rGal, msg = msg)
+        self.ASSERT_EQZ(self.SUB(xGal, rGal), msg = msg)
         return rGal
     # arithmetic operations on variables
     def ADD(self, xGal, yGal):
-        xGal = Var({0: xGal}) if isinstance(xGal, int) else Var(xGal.data.copy())
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
         if isinstance(yGal, int):
-            xGal.data[0] = (xGal.data.get(0, 0x00) + yGal) % ρ
-        else:
-            for k, v in yGal.data.items():
-                xGal.data[k] = (xGal.data.get(k, 0x00) + v) % ρ
-        return xGal.data.get(0, 0x00) if xGal.data.keys() <= {0} else xGal
+            yGal = Var({0: yGal})
+        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00) % ρ)})
+        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
     def SUB(self, xGal, yGal):
-        xGal = Var({0: xGal}) if isinstance(xGal, int) else Var(xGal.data.copy())
+        if isinstance(xGal, int):
+            xGal = Var({0: xGal})
         if isinstance(yGal, int):
-            xGal.data[0] = (xGal.data.get(0, 0x00) - yGal) % ρ
-        else:
-            for k, v in yGal.data.items():
-                xGal.data[k] = (xGal.data.get(k, 0x00) - v) % ρ
-        return xGal.data.get(0, 0x00) if xGal.data.keys() <= {0} else xGal
+            yGal = Var({0: yGal})
+        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00) % ρ)})
+        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
         if isinstance(xGal, int) and isinstance(yGal, int):
             return xGal * yGal % ρ
@@ -129,10 +127,11 @@ class Circuit:
         rGal = Var({0: rGal}) if isinstance(rGal, int) else Var(rGal.data.copy())
         for iGal in iLst:
             if isinstance(iGal, int):
-                rGal.data[0] = (rGal.data.get(0, 0x00) + iGal) % ρ
+                rGal.data[0] = rGal.data.get(0, 0x00) + iGal
             else:
                 for k, v in iGal.data.items():
-                    rGal.data[k] = (rGal.data.get(k, 0x00) + v) % ρ
+                    rGal.data[k] = rGal.data.get(k, 0x00) + v
+        rGal = Var({k: t for k, v in rGal.data.items() if (t := v % ρ)})
         return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
     # type conversion operations on variables
     def BINARY(self, xGal, xLen, *, msg = 'binarization error'):
@@ -148,9 +147,9 @@ class Circuit:
             return xBin
         xBin = self.MKLIST(lambda getw, args: [getw(xGal) >> iLen & 0x01 for iLen in range(xLen)], xLen)
         for iLen, xBit in enumerate(xBin):
-            self.ASSERT_ISBOOL(xBit)
+            self.ASSERT_IS_BOOL(xBit)
         tGal = self.SUM(self.MUL(xBit, 0x02 ** iLen) for iLen, xBit in enumerate(xBin))
-        self.ASSERT_EQ(xGal, tGal, msg = msg)
+        self.ASSERT_EQZ(self.SUB(xGal, tGal), msg = msg)
         return xBin
     def GALOIS(self, xBin):
         # Convert a binary list to a galios field element, for example, GALOIS([1, 0, 1]) will return 5.
@@ -163,15 +162,16 @@ class Circuit:
             assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
             return xKey
         xFrz = tuple(sorted(xGal.data.items()))
-        if (xKey := self.enums.get(kSet, {}).get(xFrz)) is not None:
+        xKey = self.enums.get(kSet, {}).get(xFrz)
+        if xKey is not None:
             return xKey
         xKey = dict(zip(kSet, self.MKLIST(lambda getw, args: [0x01 if getw(xGal) == kInt else 0x00 for kInt in kSet], len(kSet))))
         for kInt, xBit in xKey.items():
-            self.ASSERT_ISBOOL(xBit)
+            self.ASSERT_IS_BOOL(xBit)
         tGal = self.SUM(self.MUL(xBit, kInt) for kInt, xBit in xKey.items())
         eGal = self.SUM(self.MUL(xBit, 0x01) for kInt, xBit in xKey.items())
-        self.ASSERT_EQ(xGal, tGal, msg = msg)
-        self.ASSERT_EQ(0x01, eGal, msg = msg)
+        self.ASSERT_EQZ(self.SUB(xGal, tGal), msg = msg)
+        self.ASSERT_EQZ(self.SUB(0x01, eGal), msg = msg)
         self.enums.setdefault(kSet, {})[xFrz] = xKey # optimize by memoization
         return xKey
     # conditional expression and get/set operations on lists and dictionaries
@@ -238,6 +238,14 @@ class Circuit:
     def XOR(self, xBit, yBit):
         return self.DIV(self.SUB(0x01, self.MUL(self.SUB(0x01, self.MUL(xBit, 0x02)), self.SUB(0x01, self.MUL(yBit, 0x02)))), 0x02)
     # compare operations on galios field elements
+    def GE(self, xGal, yGal, bLen, msg = 'GE compare failed'): # 0x00 <= xGal - yGal < 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(xGal, yGal)), bLen + 1, msg = msg)[bLen]
+    def LE(self, xGal, yGal, bLen, msg = 'LE compare failed'): # 0x00 <= yGal - xGal < 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(yGal, xGal)), bLen + 1, msg = msg)[bLen]
+    def GT(self, xGal, yGal, bLen, msg = 'GT compare failed'): # 0x00 < xGal - yGal <= 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(xGal, yGal), 0x01)), bLen + 1, msg = msg)[bLen]
+    def LT(self, xGal, yGal, bLen, msg = 'LT compare failed'): # 0x00 < yGal - xGal <= 0x02 ** bLen
+        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(yGal, xGal), 0x01)), bLen + 1, msg = msg)[bLen]
     def NEZ(self, xGal, *, msg = 'booleanization error'):
         # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
         if isinstance(xGal, int):
@@ -247,14 +255,6 @@ class Circuit:
         self.MKGATE(rBit, xGal, xGal, msg = msg) # asserts that r has to be 1 if x is non-zero
         self.MKGATE(xGal, iGal, rBit, msg = msg) # asserts that r has to be 0 if x is zero
         return rBit
-    def GE(self, xGal, yGal, bLen, msg = 'GE compare failed'): # 0x00 <= xGal - yGal < 0x02 ** bLen
-        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(xGal, yGal)), bLen + 1, msg = msg)[bLen]
-    def LE(self, xGal, yGal, bLen, msg = 'LE compare failed'): # 0x00 <= yGal - xGal < 0x02 ** bLen
-        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(yGal, xGal)), bLen + 1, msg = msg)[bLen]
-    def GT(self, xGal, yGal, bLen, msg = 'GT compare failed'): # 0x00 < xGal - yGal <= 0x02 ** bLen
-        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(xGal, yGal), 0x01)), bLen + 1, msg = msg)[bLen]
-    def LT(self, xGal, yGal, bLen, msg = 'LT compare failed'): # 0x00 < yGal - xGal <= 0x02 ** bLen
-        return self.BINARY(self.ADD(0x02 ** bLen, self.SUB(self.SUB(yGal, xGal), 0x01)), bLen + 1, msg = msg)[bLen]
     # assertion operations on galios field elements
     def ASSERT_GE(self, xGal, yGal, bLen, *, msg = 'GE assertion failed'): # assert 0x00 <= xGal - yGal < 0x02 ** bLen
         return self.BINARY(self.SUB(xGal, yGal), bLen, msg = msg)
@@ -264,13 +264,14 @@ class Circuit:
         return self.BINARY(self.SUB(self.SUB(xGal, yGal), 0x01), bLen, msg = msg)
     def ASSERT_LT(self, xGal, yGal, bLen, *, msg = 'LT assertion failed'): # assert 0x00 < yGal - xGal <= 0x02 ** bLen
         return self.BINARY(self.SUB(self.SUB(yGal, xGal), 0x01), bLen, msg = msg)
-    def ASSERT_EQ(self, xGal, yGal, *, msg = 'EQ assertion failed'):
-        self.MKGATE(0x00, 0x00, self.SUB(xGal, yGal), msg = msg)
-    def ASSERT_NE(self, xGal, yGal, *, msg = 'NE assertion failed'):
-        self.DIV(0x01, self.SUB(xGal, yGal), msg = msg)
-    def ASSERT_ISBOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
+    def ASSERT_EQZ(self, xGal, *, msg = 'EQ assertion failed'):
+        self.MKGATE(0x00, 0x00, xGal, msg = msg)
+    def ASSERT_NEZ(self, xGal, *, msg = 'NE assertion failed'):
+        self.DIV(0x01, xGal, msg = msg)
+    def ASSERT_IS_BOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
+        # Assert x is a boolean value.
         self.MKGATE(xGal, xGal, xGal, msg = msg)
-    def ASSERT_ISPERM(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
+    def ASSERT_IS_PERM_IMPL(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
         # Assert that the two lists are permutations of each other using the Waksman network.
         nLen = len(lLst)
         if nLen == 0:
@@ -278,7 +279,7 @@ class Circuit:
         lLst = [Var({0: sGal}) if isinstance(sGal, int) else sGal for sGal in lLst]
         rLst = [Var({0: dGal}) if isinstance(dGal, int) else dGal for dGal in rLst]
         if nLen == 1:
-            self.ASSERT_EQ(lLst[0], rLst[0], msg = msg)
+            self.ASSERT_EQZ(self.SUB(lLst[0], rLst[0]), msg = msg)
             return
         kLen = nLen // 2
         lLen = nLen // 2
@@ -286,7 +287,7 @@ class Circuit:
         wBin = self.MKLIST(lambda getw, args: waksman.genbits(list(map(getw, lLst)), list(map(getw, rLst)), no_rec = True), lLen + rLen)
         if nLen == 2:
             cBit = wBin[0]
-            self.ASSERT_ISBOOL(cBit)
+            self.ASSERT_IS_BOOL(cBit)
             self.MKGATE(cBit, self.SUB(lLst[1], lLst[0]), self.SUB(rLst[0], lLst[0]), msg = msg)
             self.MKGATE(cBit, self.SUB(lLst[0], lLst[1]), self.SUB(rLst[1], lLst[1]), msg = msg)
             return
@@ -295,11 +296,11 @@ class Circuit:
             rdLs = rLst[1:]
             lBit = wBin[0]
             rBit = wBin[1]
-            self.ASSERT_ISBOOL(lBit)
-            self.ASSERT_ISBOOL(rBit)
+            self.ASSERT_IS_BOOL(lBit)
+            self.ASSERT_IS_BOOL(rBit)
             ldLs[0] = self.IF(lBit, ldLs[0], lLst[0])
             rdLs[0] = self.IF(rBit, rdLs[0], rLst[0])
-            self.ASSERT_ISPERM(ldLs, rdLs, msg = msg)
+            self.ASSERT_IS_PERM_IMPL(ldLs, rdLs, msg = msg)
             xGal = self.MKWIRE(lambda getw, args: max(getw(lLst[getw(lBit)]), getw(rLst[getw(rBit)])))
             self.MKGATE(lBit, self.SUB(lLst[1], lLst[0]), self.SUB(xGal, lLst[0]), msg = msg)
             self.MKGATE(rBit, self.SUB(rLst[1], rLst[0]), self.SUB(xGal, rLst[0]), msg = msg)
@@ -308,15 +309,15 @@ class Circuit:
         ruLs, rdLs = rLst[:kLen], rLst[kLen:]
         for iLen in range(lLen):
             cBit = wBin[iLen]
-            self.ASSERT_ISBOOL(cBit)
+            self.ASSERT_IS_BOOL(cBit)
             luLs[iLen], ldLs[iLen] = self.IF(cBit, (ldLs[iLen], luLs[iLen]), (luLs[iLen], ldLs[iLen]))
         for iLen in range(rLen):
             cBit = wBin[iLen - rLen]
-            self.ASSERT_ISBOOL(cBit)
+            self.ASSERT_IS_BOOL(cBit)
             ruLs[iLen], rdLs[iLen] = self.IF(cBit, (rdLs[iLen], ruLs[iLen]), (ruLs[iLen], rdLs[iLen]))
-        self.ASSERT_ISPERM(luLs, ruLs, msg = msg)
-        self.ASSERT_ISPERM(ldLs, rdLs, msg = msg)
-    def ASSERT_ISPERM_OPT(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
+        self.ASSERT_IS_PERM_IMPL(luLs, ruLs, msg = msg)
+        self.ASSERT_IS_PERM_IMPL(ldLs, rdLs, msg = msg)
+    def ASSERT_IS_PERM(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
         # Optimize the ISPERM assertion by removing the common elements in the two lists before the assertion.
         lMap = {}
         rMap = {}
@@ -332,10 +333,7 @@ class Circuit:
                 rLst[rLen] = None
         lLst = [lGal for lGal in lLst if lGal is not None]
         rLst = [rGal for rGal in rLst if rGal is not None]
-        self.ASSERT_ISPERM(lLst, rLst, msg = msg)
-    def ASSERT_IN(self, xGal, kSet, *, msg = 'IN assertion failed'):
-        # assert x is in the set
-        return self.ENUM(xGal, kSet, msg = msg)
+        self.ASSERT_IS_PERM_IMPL(lLst, rLst, msg = msg)
     # bitwise operations on binary lists
     def SHL(self, xBin, rLen):
         rLen = rLen % len(xBin)

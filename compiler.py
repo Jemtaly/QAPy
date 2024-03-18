@@ -62,8 +62,15 @@ class Compiler(ast.NodeVisitor, circuit.Circuit):
             'private': lambda s: self.PARAM(asstr(s)),
             'public': lambda s: self.PARAM(asstr(s), public = True),
             'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
-            'isperm': lambda s, d, msg: self.ASSERT_ISPERM_OPT(list(map(asgal, s)), list(map(asgal, d)), msg = asstr(msg)),
-            'mkgate': lambda x, y, z, msg: self.MKGATE(asgal(x), asgal(y), asgal(z), msg = asstr(msg)),
+            'assert_is_perm': lambda l, r, msg: self.ASSERT_IS_PERM(list(map(asgal, l)), list(map(asgal, r)), msg = asstr(msg)),
+            'assert_is_bool': lambda x, msg: self.ASSERT_IS_BOOL(asgal(x), msg = asstr(msg)),
+            'assert_eqz': lambda x, msg: self.ASSERT_EQZ(asgal(x), msg = asstr(msg)),
+            'assert_nez': lambda x, msg: self.ASSERT_NEZ(asgal(x), msg = asstr(msg)),
+            'assert_raw': lambda x, y, z, msg: self.MKGATE(asgal(x), asgal(y), asgal(z), msg = asstr(msg)),
+            'assert_binle': lambda x, y, msg: self.ASSERT_BINLE(asbin(x), asbin(y), msg = asstr(msg)),
+            'assert_binlt': lambda x, y, msg: self.ASSERT_BINLT(asbin(x), asbin(y), msg = asstr(msg)),
+            'assert_binge': lambda x, y, msg: self.ASSERT_BINGE(asbin(x), asbin(y), msg = asstr(msg)),
+            'assert_bingt': lambda x, y, msg: self.ASSERT_BINGT(asbin(x), asbin(y), msg = asstr(msg)),
         }] # the stack is used to store the local variables
     def parse(self, code):
         self.visit(ast.parse(code))
@@ -206,9 +213,9 @@ class Compiler(ast.NodeVisitor, circuit.Circuit):
     def visit_Assert(self, node):
         test = self.visit(node.test)
         if node.msg is None:
-            self.ASSERT_NE(0x00, asgal(test))
+            self.ASSERT_NEZ(asgal(test))
         else:
-            self.ASSERT_NE(0x00, asgal(test), msg = asstr(self.visit(node.msg)))
+            self.ASSERT_NEZ(asgal(test), msg = asstr(self.visit(node.msg)))
         return None, None
     def visit_FunctionDef(self, node):
         def_stack = self.stack
