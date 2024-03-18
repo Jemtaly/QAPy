@@ -16,25 +16,15 @@ class Circuit:
     # the setup, prove, and verify methods of the Groth16 zk-SNARK.
     def __init__(self):
         self.gates = [] # the constraints in the circuit, see the MKGATE method for details
-        self.wires = [lambda getw, args: 1] # functions to generate the variables in the witness vector, the 0-th variable is always 1
+        self.wires = [(-1, lambda getw, args: 1)] # functions to generate the variables in the witness vector, the 0-th variable is always 1
+        self.wire_count = 1 # the number of variables in the witness vector
         self.stmts = {0: '1'} # the public variables, keys are their indices in the witness vector, and values are their names
         self.enums = {} # memoization of the enum values
-    def gate_count(self):
+    def get_gate_count(self):
         return len(self.gates)
-    def wire_count(self):
-        return len(self.wires)
+    def get_wire_count(self):
+        return self.wire_count
     # the following methods are used to construct the arithmetic circuits
-    def MKWIRE(self, func, name = None):
-        # Add a new variable that defined by the given function to the witness vector.
-        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
-        # that is defined by the product of the values of y and z in the witness vector, and then return
-        # this variable. If name is specified, the variable is public.
-        i = len(self.wires)
-        self.wires.append(func)
-        # if name is specified, the variable is public
-        if name is not None:
-            self.stmts[i] = name
-        return Var({i: 0x01})
     def MKGATE(self, xGal, yGal, zGal, *, msg = 'assertion error'):
         # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
         # x * y = z, msg is the error message when the constraint is not satisfied.
@@ -52,6 +42,28 @@ class Circuit:
         if isinstance(zGal, int):
             zGal = Var({0: zGal})
         self.gates.append((xGal, yGal, zGal, msg))
+    def MKWIRE(self, func, name = None):
+        # Add a new variable that defined by the given function to the witness vector.
+        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
+        # that is defined by the product of the values of y and z in the witness vector, and then return
+        # this variable.
+        i = self.wire_count
+        self.wires.append((-1, func))
+        self.wire_count += 1
+        # if name is specified, the variable is public
+        if name is not None:
+            self.stmts[i] = name
+        return Var({i: 0x01})
+    def MKLIST(self, func, n):
+        # Add n new variables that defined by the given function to the witness vector, and then return
+        # these variables as a list.
+        i = self.wire_count
+        self.wires.append((n, func))
+        self.wire_count += n
+        return [Var({i + j: 0x01}) for j in range(n)]
+    def MKFUNC(self, func):
+        # Call the given function when generating the witness vector, the return values will be ignored.
+        self.wires.append((-2, func))
     def PARAM(self, name, public = False):
         # Add an input parameter to the circuit, the value of the parameter can be set when calling the
         # prove method.
@@ -131,13 +143,11 @@ class Circuit:
         if not 0 <= xLen < ρ.bit_length():
             raise ValueError('invalid bit length')
         if isinstance(xGal, int):
-            xBin = [xGal % ρ >> iLen & 0x01 for iLen in range(xLen)]
+            xBin = [xGal >> iLen & 0x01 for iLen in range(xLen)]
             assert sum(xBit * 0x02 ** iLen for iLen, xBit in enumerate(xBin)) == xGal, msg
             return xBin
-        bind = lambda iLen: self.MKWIRE(lambda getw, args: getw(xGal) >> iLen & 0x01)
-        xBin = [0x00 for _ in range(xLen)]
-        for iLen in range(xLen):
-            xBit = xBin[iLen] = bind(iLen)
+        xBin = self.MKLIST(lambda getw, args: [getw(xGal) >> iLen & 0x01 for iLen in range(xLen)], xLen)
+        for iLen, xBit in enumerate(xBin):
             self.ASSERT_ISBOOL(xBit)
         tGal = self.SUM(self.MUL(xBit, 0x02 ** iLen) for iLen, xBit in enumerate(xBin))
         self.ASSERT_EQ(xGal, tGal, msg = msg)
@@ -149,16 +159,14 @@ class Circuit:
         # Convert x to an enum value, for example, ENUM(3, {1, 3, 5}) will return {1: 0, 3: 1, 5: 0},
         # and ENUM(2, {1, 3, 5}) will raise an error because 2 is not in the set.
         if isinstance(xGal, int):
-            xKey = {kInt: 0x01 if (xGal - kInt) % ρ == 0x00 else 0x00 for kInt in kSet}
+            xKey = {kInt: 0x01 if xGal == kInt else 0x00 for kInt in kSet}
             assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
             return xKey
         xFrz = tuple(sorted(xGal.data.items()))
         if (xKey := self.enums.get(kSet, {}).get(xFrz)) is not None:
             return xKey
-        bind = lambda kInt: self.MKWIRE(lambda getw, args: 0x01 if (getw(xGal) - kInt) % ρ == 0x00 else 0x00)
-        xKey = {kInt: 0x00 for kInt in kSet}
-        for kInt in kSet:
-            xBit = xKey[kInt] = bind(kInt)
+        xKey = dict(zip(kSet, self.MKLIST(lambda getw, args: [0x01 if getw(xGal) == kInt else 0x00 for kInt in kSet], len(kSet))))
+        for kInt, xBit in xKey.items():
             self.ASSERT_ISBOOL(xBit)
         tGal = self.SUM(self.MUL(xBit, kInt) for kInt, xBit in xKey.items())
         eGal = self.SUM(self.MUL(xBit, 0x01) for kInt, xBit in xKey.items())
@@ -263,17 +271,21 @@ class Circuit:
     def ASSERT_ISBOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
         self.MKGATE(xGal, xGal, xGal, msg = msg)
     def ASSERT_ISPERM(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
+        # Assert that the two lists are permutations of each other using the Waksman network.
         nLen = len(lLst)
-        LLst = [Var({0: sGal}) if isinstance(sGal, int) else sGal for sGal in lLst]
-        RLst = [Var({0: dGal}) if isinstance(dGal, int) else dGal for dGal in rLst]
-        bind = lambda iLen: self.MKWIRE(lambda getw, args: waksman.genbits(list(map(getw, LLst)), list(map(getw, RLst)))[iLen] % ρ)
         if nLen == 0:
             return
+        lLst = [Var({0: sGal}) if isinstance(sGal, int) else sGal for sGal in lLst]
+        rLst = [Var({0: dGal}) if isinstance(dGal, int) else dGal for dGal in rLst]
         if nLen == 1:
             self.ASSERT_EQ(lLst[0], rLst[0], msg = msg)
             return
+        kLen = nLen // 2
+        lLen = nLen // 2
+        rLen = nLen // 2 + nLen % 2 - 1
+        wBin = self.MKLIST(lambda getw, args: waksman.genbits(list(map(getw, lLst)), list(map(getw, rLst)), no_rec = True), lLen + rLen)
         if nLen == 2:
-            cBit = bind(0)
+            cBit = wBin[0]
             self.ASSERT_ISBOOL(cBit)
             self.MKGATE(cBit, self.SUB(lLst[1], lLst[0]), self.SUB(rLst[0], lLst[0]), msg = msg)
             self.MKGATE(cBit, self.SUB(lLst[0], lLst[1]), self.SUB(rLst[1], lLst[1]), msg = msg)
@@ -281,32 +293,46 @@ class Circuit:
         if nLen == 3:
             ldLs = lLst[1:]
             rdLs = rLst[1:]
-            lBit = bind(0)
-            rBit = bind(2)
+            lBit = wBin[0]
+            rBit = wBin[1]
             self.ASSERT_ISBOOL(lBit)
             self.ASSERT_ISBOOL(rBit)
             ldLs[0] = self.IF(lBit, ldLs[0], lLst[0])
             rdLs[0] = self.IF(rBit, rdLs[0], rLst[0])
             self.ASSERT_ISPERM(ldLs, rdLs, msg = msg)
-            xGal = self.MKWIRE(lambda getw, args: max(lLst[1] if getw(lBit) else lLst[0], rLst[1] if getw(rBit) else rLst[0]))
+            xGal = self.MKWIRE(lambda getw, args: max(getw(lLst[getw(lBit)]), getw(rLst[getw(rBit)])))
             self.MKGATE(lBit, self.SUB(lLst[1], lLst[0]), self.SUB(xGal, lLst[0]), msg = msg)
             self.MKGATE(rBit, self.SUB(rLst[1], rLst[0]), self.SUB(xGal, rLst[0]), msg = msg)
             return
-        kLen = nLen // 2
-        lLen = nLen // 2
-        rLen = nLen // 2 + nLen % 2 - 1
         luLs, ldLs = lLst[:kLen], lLst[kLen:]
         ruLs, rdLs = rLst[:kLen], rLst[kLen:]
         for iLen in range(lLen):
-            cBit = bind(iLen)
+            cBit = wBin[iLen]
             self.ASSERT_ISBOOL(cBit)
             luLs[iLen], ldLs[iLen] = self.IF(cBit, (ldLs[iLen], luLs[iLen]), (luLs[iLen], ldLs[iLen]))
         for iLen in range(rLen):
-            cBit = bind(iLen - rLen)
+            cBit = wBin[iLen - rLen]
             self.ASSERT_ISBOOL(cBit)
             ruLs[iLen], rdLs[iLen] = self.IF(cBit, (rdLs[iLen], ruLs[iLen]), (ruLs[iLen], rdLs[iLen]))
         self.ASSERT_ISPERM(luLs, ruLs, msg = msg)
         self.ASSERT_ISPERM(ldLs, rdLs, msg = msg)
+    def ASSERT_ISPERM_OPT(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
+        # Optimize the ISPERM assertion by removing the common elements in the two lists before the assertion.
+        lMap = {}
+        rMap = {}
+        for lLen, lGal in enumerate(lLst):
+            lMap.setdefault(lGal if isinstance(lGal, int) else tuple(sorted(lGal.data.items())), []).append(lLen)
+        for rLen, rGal in enumerate(rLst):
+            rMap.setdefault(rGal if isinstance(rGal, int) else tuple(sorted(rGal.data.items())), []).append(rLen)
+        lLst = lLst.copy()
+        rLst = rLst.copy()
+        for xGal in set(lMap) & set(rMap):
+            for lLen, rLen in zip(lMap[xGal], rMap[xGal]):
+                lLst[lLen] = None
+                rLst[rLen] = None
+        lLst = [lGal for lGal in lLst if lGal is not None]
+        rLst = [rGal for rGal in rLst if rGal is not None]
+        self.ASSERT_ISPERM(lLst, rLst, msg = msg)
     def ASSERT_IN(self, xGal, kSet, *, msg = 'IN assertion failed'):
         # assert x is in the set
         return self.ENUM(xGal, kSet, msg = msg)

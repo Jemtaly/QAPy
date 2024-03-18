@@ -25,8 +25,8 @@ def setup(circuit):
     γ = random.randrange(1, ρ)
     δ = random.randrange(1, ρ)
     τ = random.randrange(1, ρ)
-    M = circuit.wire_count()
-    N = circuit.gate_count()
+    M = circuit.get_wire_count()
+    N = circuit.get_gate_count()
     I = 1 << (N - 1).bit_length() # the smallest power of 2 that is not less than N
     p = fft.pru(I, ρ) # the primitive I-th root of unity in GF(P)
     # What we need is to calculate Aₘ(τ), Bₘ(τ), Cₘ(τ) for m in [0, M), where Aₘ, Bₘ and Cₘ are the
@@ -74,16 +74,21 @@ def setup(circuit):
 def prove(circuit, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args):
     r = random.randrange(1, ρ)
     s = random.randrange(1, ρ)
-    M = circuit.wire_count()
-    N = circuit.gate_count()
+    M = circuit.get_wire_count()
+    N = circuit.get_gate_count()
     I = 1 << (N - 1).bit_length()
     J = 1 << (N - 1).bit_length() + 1
     p = fft.pru(I, ρ)
     q = fft.pru(J, ρ)
     wM = []
     getw = lambda tM: sum(wM[m] * t for m, t in tM.data.items()) % ρ # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
-    for func in circuit.wires:
-        wM.append(func(getw, args))
+    for n, func in circuit.wires:
+        res = func(getw, args)
+        if n >= 0:
+            assert len(res) == n
+            wM.extend(res)
+        elif n == -1:
+            wM.append(res)
     uU = [wM[m] for m in                      circuit.stmts]
     vV = [wM[m] for m in range(M) if m not in circuit.stmts]
     awN = []

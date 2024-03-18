@@ -12,7 +12,7 @@ def network(n, j = 0):
     for i in range(rbitn):
         net.append((j + i, j + i + k))
     return net
-def genbits(lft, rgt):
+def genbits(lft, rgt, no_rec = False):
     n = min(len(lft), len(rgt))
     if n <= 1:
         return []
@@ -35,13 +35,13 @@ def genbits(lft, rgt):
         l = n - 1
         r = l2r[l]
         while True:
-            lbits[r % k] = r // k == 0
-            r = r + k if r // k == 0 else r - k
+            lbits[r % k] = 1 if r < k else 0
+            r = r + k if r < k else r - k
             l = r2l[r]
             if l == k - 1:
                 break
-            rbits[l % k] = l // k == 1
-            l = l + k if l // k == 0 else l - k
+            rbits[l % k] = 0 if l < k else 1
+            l = l + k if l < k else l - k
             r = l2r[l]
     else:
         l = n - 1
@@ -49,11 +49,11 @@ def genbits(lft, rgt):
         while True:
             if r == n - 1:
                 break
-            lbits[r % k] = r // k == 0
-            r = r + k if r // k == 0 else r - k
+            lbits[r % k] = 1 if r < k else 0
+            r = r + k if r < k else r - k
             l = r2l[r]
-            rbits[l % k] = l // k == 1
-            l = l + k if l // k == 0 else l - k
+            rbits[l % k] = 0 if l < k else 1
+            l = l + k if l < k else l - k
             r = l2r[l]
     # generate remaining bits
     i = rbitn
@@ -66,14 +66,16 @@ def genbits(lft, rgt):
         l = i + k
         r = l2r[l]
         while True:
-            lbits[r % k] = r // k == 0
-            r = r + k if r // k == 0 else r - k
+            lbits[r % k] = 1 if r < k else 0
+            r = r + k if r < k else r - k
             l = r2l[r]
-            rbits[l % k] = l // k == 1
-            l = l + k if l // k == 0 else l - k
+            rbits[l % k] = 0 if l < k else 1
+            l = l + k if l < k else l - k
             r = l2r[l]
             if l == i + k:
                 break
+    if no_rec:
+        return lbits + rbits
     # apply swaps to the left and right inputs
     ulft, dlft = lft[:k], lft[k:]
     for i in range(lbitn):

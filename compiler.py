@@ -62,7 +62,7 @@ class Compiler(ast.NodeVisitor, circuit.Circuit):
             'private': lambda s: self.PARAM(asstr(s)),
             'public': lambda s: self.PARAM(asstr(s), public = True),
             'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
-            'isperm': lambda s, d, msg: self.ASSERT_ISPERM(list(map(asgal, s)), list(map(asgal, d)), msg = asstr(msg)),
+            'isperm': lambda s, d, msg: self.ASSERT_ISPERM_OPT(list(map(asgal, s)), list(map(asgal, d)), msg = asstr(msg)),
             'mkgate': lambda x, y, z, msg: self.MKGATE(asgal(x), asgal(y), asgal(z), msg = asstr(msg)),
         }] # the stack is used to store the local variables
     def parse(self, code):

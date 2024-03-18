@@ -78,8 +78,8 @@ if __name__ == '__main__':
             "for i in range(8):\n"
             "    reveal(fmt('V[{:#04x}]', i), V[i])\n"
         )
-    print('Number of gates:', comp.gate_count())
-    print('Number of wires:', comp.wire_count())
+    print('Number of gates:', comp.get_gate_count())
+    print('Number of wires:', comp.get_wire_count())
     with Timer('Setting up QAP...'):
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(comp)
     with Timer('Generating proof...'):
