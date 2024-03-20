@@ -84,11 +84,11 @@ def prove(circuit, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args):
     getw = lambda tM: sum(wM[m] * t for m, t in tM.data.items()) % ρ # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
     for n, func in circuit.wires:
         res = func(getw, args)
-        if n >= 0:
+        if n == -1:
+            wM.append(res)
+        else:
             assert len(res) == n
             wM.extend(res)
-        elif n == -1:
-            wM.append(res)
     uU = [wM[m] for m in                      circuit.stmts]
     vV = [wM[m] for m in range(M) if m not in circuit.stmts]
     awN = []

@@ -16,9 +16,10 @@ class Circuit:
     # the setup, prove, and verify methods of the Groth16 zk-SNARK.
     def __init__(self):
         self.gates = [] # the constraints in the circuit, see the MKGATE method for details
-        self.wires = [(-1, lambda getw, args: 1)] # functions to generate the variables in the witness vector, the 0-th variable is always 1
-        self.wire_count = 1 # the number of variables in the witness vector
-        self.stmts = {0: '1'} # the public variables, keys are their indices in the witness vector, and values are their names
+        self.wires = [] # functions to generate the variables in the witness vector
+        self.wire_count = 0 # the number of variables in the witness vector
+        self.stmts = {} # the public variables, keys are their indices in the witness vector, and values are their names
+        self.MKWIRE(lambda getw, args: 0x01, 'ONE') # add a constant 1 to the witness vector
         self.enums = {} # memoization of the enum values
     def get_gate_count(self):
         return len(self.gates)
@@ -42,9 +43,6 @@ class Circuit:
         if isinstance(zGal, int):
             zGal = Var({0: zGal})
         self.gates.append((xGal, yGal, zGal, msg))
-    def MKFUNC(self, func):
-        # Call the given function when generating the witness vector, the return values will be ignored.
-        self.wires.append((-2, func))
     def MKWIRE(self, func, name = None):
         # Add a new variable that defined by the given function to the witness vector.
         # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
@@ -57,7 +55,7 @@ class Circuit:
         if name is not None:
             self.stmts[i] = name
         return Var({i: 0x01})
-    def MKLIST(self, func, n):
+    def MKWIRES(self, func, n):
         # Add n new variables that defined by the given function to the witness vector, and then return
         # these variables as a list.
         i = self.wire_count
@@ -145,7 +143,7 @@ class Circuit:
             xBin = [xGal >> iLen & 0x01 for iLen in range(xLen)]
             assert sum(xBit * 0x02 ** iLen for iLen, xBit in enumerate(xBin)) == xGal, msg
             return xBin
-        xBin = self.MKLIST(lambda getw, args: [getw(xGal) >> iLen & 0x01 for iLen in range(xLen)], xLen)
+        xBin = self.MKWIRES(lambda getw, args: [getw(xGal) >> iLen & 0x01 for iLen in range(xLen)], xLen)
         for iLen, xBit in enumerate(xBin):
             self.ASSERT_IS_BOOL(xBit)
         tGal = self.SUM(self.MUL(xBit, 0x02 ** iLen) for iLen, xBit in enumerate(xBin))
@@ -165,7 +163,7 @@ class Circuit:
         xKey = self.enums.get(kSet, {}).get(xFrz)
         if xKey is not None:
             return xKey
-        xKey = dict(zip(kSet, self.MKLIST(lambda getw, args: [0x01 if getw(xGal) == kInt else 0x00 for kInt in kSet], len(kSet))))
+        xKey = dict(zip(kSet, self.MKWIRES(lambda getw, args: [0x01 if getw(xGal) == kInt else 0x00 for kInt in kSet], len(kSet))))
         for kInt, xBit in xKey.items():
             self.ASSERT_IS_BOOL(xBit)
         tGal = self.SUM(self.MUL(xBit, kInt) for kInt, xBit in xKey.items())
@@ -284,7 +282,7 @@ class Circuit:
         kLen = nLen // 2
         lLen = nLen // 2
         rLen = nLen // 2 + nLen % 2 - 1
-        wBin = self.MKLIST(lambda getw, args: waksman.genbits(list(map(getw, lLst)), list(map(getw, rLst)), no_rec = True), lLen + rLen)
+        wBin = self.MKWIRES(lambda getw, args: waksman.genbits(list(map(getw, lLst)), list(map(getw, rLst)), no_rec = True), lLen + rLen)
         if nLen == 2:
             cBit = wBin[0]
             self.ASSERT_IS_BOOL(cBit)
@@ -318,7 +316,7 @@ class Circuit:
         self.ASSERT_IS_PERM_IMPL(luLs, ruLs, msg = msg)
         self.ASSERT_IS_PERM_IMPL(ldLs, rdLs, msg = msg)
     def ASSERT_IS_PERM(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
-        # Optimize the ISPERM assertion by removing the common elements in the two lists before the assertion.
+        # Optimize the IS_PERM assertion by removing the common elements in the two lists before the assertion.
         lMap = {}
         rMap = {}
         for lLen, lGal in enumerate(lLst):

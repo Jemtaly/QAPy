@@ -43,7 +43,7 @@ def shape(x):
             return (frozenset(x), *outer), inner
         raise TypeError('inconsistent shape of dict values')
     raise TypeError('unsupported data type')
-class Compiler(ast.NodeVisitor, circuit.Circuit):
+class Program(ast.NodeVisitor, circuit.Circuit):
     # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
     # arithmetic circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
@@ -59,9 +59,6 @@ class Compiler(ast.NodeVisitor, circuit.Circuit):
             'bin': lambda x, n: (x + [0x00] * asint(n))[:n] if isbin(x) else self.BINARY(asgal(x), asint(n)),
             'fmt': lambda s, *args: asstr(s).format(*map(asint, args)),
             'log': lambda s: print(asstr(s)),
-            'private': lambda s: self.PARAM(asstr(s)),
-            'public': lambda s: self.PARAM(asstr(s), public = True),
-            'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
             'assert_is_perm': lambda l, r, msg: self.ASSERT_IS_PERM(list(map(asgal, l)), list(map(asgal, r)), msg = asstr(msg)),
             'assert_is_bool': lambda x, msg: self.ASSERT_IS_BOOL(asgal(x), msg = asstr(msg)),
             'assert_eqz': lambda x, msg: self.ASSERT_EQZ(asgal(x), msg = asstr(msg)),
@@ -72,13 +69,6 @@ class Compiler(ast.NodeVisitor, circuit.Circuit):
             'assert_binge': lambda x, y, msg: self.ASSERT_BINGE(asbin(x), asbin(y), msg = asstr(msg)),
             'assert_bingt': lambda x, y, msg: self.ASSERT_BINGT(asbin(x), asbin(y), msg = asstr(msg)),
         }] # the stack is used to store the local variables
-    def parse(self, code):
-        self.visit(ast.parse(code))
-    def visit_Module(self, node):
-        for stmt in node.body:
-            flag, result = self.visit(stmt)
-            if flag == 'continue' or flag == 'break' or flag == 'return':
-                raise SyntaxError('unexpected ' + flag)
     def visit_Continue(self, node):
         return 'continue', None
     def visit_Break(self, node):
@@ -405,6 +395,97 @@ class Compiler(ast.NodeVisitor, circuit.Circuit):
         return self.IF(asgal(self.visit(node.test)), left, right)
     def generic_visit(self, node):
         raise SyntaxError('unsupported syntax')
-    def visit_Index(self, node):
-        # deprecated since Python 3.9
-        return self.visit(node.value)
+class Compiler(Program):
+    def __init__(self):
+        Program.__init__(self)
+        self.stack[-1].update({
+            'private': lambda s: self.PARAM(asstr(s)),
+            'public': lambda s: self.PARAM(asstr(s), public = True),
+            'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
+        })
+    def compile(self, code):
+        self.visit(ast.parse(code))
+    def visit_Module(self, node):
+        for stmt in node.body:
+            flag, result = self.visit(stmt)
+            if flag == 'continue' or flag == 'break' or flag == 'return':
+                raise SyntaxError('unexpected ' + flag)
+    def visit_With(self, node):
+        if len(node.items) != 1:
+            raise SyntaxError('invalid with statement')
+        item = node.items[0]
+        expr = item.context_expr
+        vars = item.optional_vars
+        if isinstance(expr, ast.Tuple):
+            elts = expr.elts
+        else:
+            elts = [expr]
+        inputs = {}
+        for elt in elts:
+            if not isinstance(elt, ast.Name):
+                raise SyntaxError('invalid input target')
+            inputs[elt.id] = self.visit(elt)
+        if vars is None:
+            elts = []
+        elif isinstance(vars, ast.Tuple):
+            elts = vars.elts
+        else:
+            elts = [vars]
+        outputs = []
+        lengths = 0
+        for elt in elts:
+            slices = []
+            length = 1
+            while not isinstance(elt, ast.Name):
+                if not isinstance(elt, ast.Subscript):
+                    raise SyntaxError('invalid output target')
+                slice = self.visit(elt.slice)
+                slices.append(slice)
+                length *= slice
+                elt = elt.value
+            outputs.append((slices, length, elt.id))
+            lengths += length
+        def func(getw, args):
+            def eval(value):
+                if isinstance(value, int):
+                    return value
+                if isinstance(value, circuit.Var):
+                    return getw(value)
+                if isinstance(value, tuple):
+                    return tuple(eval(v) for v in value)
+                if isinstance(value, list):
+                    return list(eval(v) for v in value)
+                if isinstance(value, dict):
+                    return dict((k, eval(v)) for k, v in value.items())
+                raise TypeError('unsupported data type')
+            program = Program()
+            program.stack[-1]['param'] = lambda s: args[asstr(s)]
+            program.stack[-1].update({id: eval(value) for id, value in inputs.items()})
+            for stmt in node.body:
+                flag, result = program.visit(stmt)
+                if flag == 'break' or flag == 'continue':
+                    raise SyntaxError('unexpected ' + flag)
+                if flag == 'return':
+                    break
+            else:
+                result = None
+            if result is None:
+                result = []
+            elif isinstance(result, tuple):
+                result = list(result)
+            else:
+                result = [result]
+            flats = []
+            for (slices, length, id), res in zip(outputs, result, strict = True):
+                flat = [res]
+                for slice in slices:
+                    flat = [r for res in flat for r in res]
+                flats.extend(flat)
+            return flats
+        flats = self.MKWIRES(func, lengths)
+        for slices, length, id in outputs:
+            flat, flats = flats[:length], flats[length:]
+            for slice in slices:
+                flat = [flat[i:i + slice] for i in range(0, len(flat), slice)]
+            self.stack[-1][id] = flat[0]
+        return None, None

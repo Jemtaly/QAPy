@@ -14,8 +14,8 @@ class Timer:
         print('{:.3f} sec'.format(self.end - self.beg))
 if __name__ == '__main__':
     with Timer('Compiling program...'):
-        comp = compiler.Compiler()
-        comp.parse(
+        test = compiler.Compiler()
+        test.compile(
             "ROR = lambda x, r: x >> r | x << 32 - r\n"
             "CHO = lambda x, y, z: [y[i] if x[i] else z[i] for i in range(32)]\n"
             "TMP = lambda x, y, z, t: [t[i] + z[i] * (x[i] + y[i] - t[i] * 2) for i in range(32)]\n"
@@ -78,17 +78,17 @@ if __name__ == '__main__':
             "for i in range(8):\n"
             "    reveal(fmt('V[{:#04x}]', i), V[i])\n"
         )
-    print('Number of gates:', comp.get_gate_count())
-    print('Number of wires:', comp.get_wire_count())
+    print('Number of gates:', test.get_gate_count())
+    print('Number of wires:', test.get_wire_count())
     with Timer('Setting up QAP...'):
-        α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(comp)
+        α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(test)
     with Timer('Generating proof...'):
         args = {'W[{:#04x}]'.format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
-        A1, B2, C1, uU = groth16.prove(comp, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args)
+        A1, B2, C1, uU = groth16.prove(test, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args)
     with Timer('Verifying...'):
         passed = groth16.verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
     if passed:
         print('Verification passed!')
-        print('Public witness:', '{{{}}}'.format(', '.join('{} = {:#010x}'.format(k, u) for k, u in zip(comp.stmts.values(), uU))))
+        print('Public witness:', '{{{}}}'.format(', '.join('{} = {:#010x}'.format(k, u) for k, u in zip(test.stmts.values(), uU))))
     else:
         print('Verification failed!')
