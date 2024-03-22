@@ -476,10 +476,10 @@ class Compiler(Program):
             else:
                 result = [result]
             flats = []
-            for (slices, length, id), res in zip(outputs, result, strict = True):
-                flat = [res]
+            for (slices, length, id), item in zip(outputs, result, strict = True):
+                flat = [item]
                 for slice in slices:
-                    flat = [r for res in flat for r in res]
+                    flat = [item for line in flat for item in line]
                 flats.extend(flat)
             return flats
         flats = self.MKWIRES(func, lengths)
