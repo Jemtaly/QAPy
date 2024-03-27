@@ -262,14 +262,14 @@ class Circuit:
         return self.BINARY(self.SUB(self.SUB(xGal, yGal), 0x01), bLen, msg = msg)
     def ASSERT_LT(self, xGal, yGal, bLen, *, msg = 'LT assertion failed'): # assert 0x00 < yGal - xGal <= 0x02 ** bLen
         return self.BINARY(self.SUB(self.SUB(yGal, xGal), 0x01), bLen, msg = msg)
-    def ASSERT_EQZ(self, xGal, *, msg = 'EQ assertion failed'):
+    def ASSERT_EQZ(self, xGal, *, msg = 'EQZ assertion failed'):
         self.MKGATE(0x00, 0x00, xGal, msg = msg)
-    def ASSERT_NEZ(self, xGal, *, msg = 'NE assertion failed'):
+    def ASSERT_NEZ(self, xGal, *, msg = 'NEZ assertion failed'):
         self.DIV(0x01, xGal, msg = msg)
-    def ASSERT_IS_BOOL(self, xGal, *, msg = 'ISBOOL assertion failed'):
+    def ASSERT_IS_BOOL(self, xGal, *, msg = 'IS_BOOL assertion failed'):
         # Assert x is a boolean value.
         self.MKGATE(xGal, xGal, xGal, msg = msg)
-    def ASSERT_IS_PERM_IMPL(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
+    def ASSERT_IS_PERM_IMPL(self, lLst, rLst, *, msg = 'IS_PERM assertion failed'):
         # Assert that the two lists are permutations of each other using the Waksman network.
         nLen = len(lLst)
         if nLen == 0:
@@ -315,7 +315,7 @@ class Circuit:
             ruLs[iLen], rdLs[iLen] = self.IF(cBit, (rdLs[iLen], ruLs[iLen]), (ruLs[iLen], rdLs[iLen]))
         self.ASSERT_IS_PERM_IMPL(luLs, ruLs, msg = msg)
         self.ASSERT_IS_PERM_IMPL(ldLs, rdLs, msg = msg)
-    def ASSERT_IS_PERM(self, lLst, rLst, *, msg = 'ISPERM assertion failed'):
+    def ASSERT_IS_PERM(self, lLst, rLst, *, msg = 'IS_PERM assertion failed'):
         # Optimize the IS_PERM assertion by removing the common elements in the two lists before the assertion.
         lMap = {}
         rMap = {}
@@ -378,6 +378,7 @@ class Circuit:
         # Division and modulo operations on binary lists.
         qLen = len(xBin)
         rLen = len(yBin)
+        assert (0x02 ** rLen - 0x01) * (0x02 ** qLen) < ρ
         xGal = self.GALOIS(xBin)
         yGal = self.GALOIS(yBin)
         if xGal == 0x00:

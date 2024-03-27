@@ -403,7 +403,7 @@ class Compiler(Program):
     def __init__(self):
         Program.__init__(self)
         self.stack[-1].update({
-            'private': lambda s: self.PARAM(asstr(s)),
+            'secret': lambda s: self.PARAM(asstr(s)),
             'public': lambda s: self.PARAM(asstr(s), public = True),
             'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
         })
