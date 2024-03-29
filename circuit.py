@@ -79,14 +79,14 @@ class Circuit:
             xGal = Var({0: xGal})
         if isinstance(yGal, int):
             yGal = Var({0: yGal})
-        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00) % ρ)})
+        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % ρ)})
         return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
     def SUB(self, xGal, yGal):
         if isinstance(xGal, int):
             xGal = Var({0: xGal})
         if isinstance(yGal, int):
             yGal = Var({0: yGal})
-        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00) % ρ)})
+        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
         return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
     def MUL(self, xGal, yGal, *, msg = 'multiplication error'):
         if isinstance(xGal, int) and isinstance(yGal, int):
@@ -434,16 +434,20 @@ class Circuit:
     def ASSERT_BINGE(self, xBin, yBin, *, msg = 'BINGE assertion failed'):
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
+        assert bLen + 1 < ρ.bit_length()
         self.BINARY(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), bLen, msg = msg)
     def ASSERT_BINLE(self, xBin, yBin, *, msg = 'BINLE assertion failed'):
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
+        assert bLen + 1 < ρ.bit_length()
         self.BINARY(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), bLen, msg = msg)
     def ASSERT_BINGT(self, xBin, yBin, *, msg = 'BINGT assertion failed'):
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
+        assert bLen + 1 < ρ.bit_length()
         self.BINARY(self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 0x01), bLen, msg = msg)
     def ASSERT_BINLT(self, xBin, yBin, *, msg = 'BINLT assertion failed'):
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
+        assert bLen + 1 < ρ.bit_length()
         self.BINARY(self.SUB(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), 0x01), bLen, msg = msg)
