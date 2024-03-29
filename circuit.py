@@ -29,18 +29,14 @@ class Circuit:
     def MKGATE(self, xGal, yGal, zGal, *, msg = 'assertion error'):
         # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
         # x * y = z, msg is the error message when the constraint is not satisfied.
-        if isinstance(zGal, int):
-            if isinstance(xGal, int) and isinstance(yGal, int):
-                assert xGal * yGal % ρ == zGal, msg
-                return
-            if xGal == 0x00 or yGal == 0x00:
+        if isinstance(xGal, int) or isinstance(yGal, int):
+            zGal = self.SUB(zGal, self.MUL(xGal, yGal))
+            if isinstance(zGal, int):
                 assert zGal == 0x00, msg
                 return
-        if isinstance(xGal, int):
-            xGal = Var({0: xGal})
-        if isinstance(yGal, int):
-            yGal = Var({0: yGal})
-        if isinstance(zGal, int):
+            xGal = Var({})
+            yGal = Var({})
+        elif isinstance(zGal, int):
             zGal = Var({0: zGal})
         self.gates.append((xGal, yGal, zGal, msg))
     def MKWIRE(self, func, name = None):
