@@ -19,14 +19,14 @@ def dot_prod_parallel(O, Ps, Zs):
     with multiprocessing.Pool(THREADS) as pool:
         return sum((Group(q) for q in pool.starmap(worker, ((Group, str(P), str(Z)) for P, Z in zip(Ps, Zs)))), O)
 # Groth16 zk-SNARK setup, prove, and verify methods
-def setup(circuit):
+def setup(gates, wire_count, skeys):
     α = random.randrange(1, ρ)
     β = random.randrange(1, ρ)
     γ = random.randrange(1, ρ)
     δ = random.randrange(1, ρ)
     τ = random.randrange(1, ρ)
-    M = circuit.get_wire_count()
-    N = circuit.get_gate_count()
+    M = wire_count
+    N = len(gates)
     I = 1 << (N - 1).bit_length() # the smallest power of 2 that is not less than N
     p = fft.pru(I, ρ) # the primitive I-th root of unity in GF(P)
     # What we need is to calculate Aₘ(τ), Bₘ(τ), Cₘ(τ) for m in [0, M), where Aₘ, Bₘ and Cₘ are the
@@ -49,7 +49,7 @@ def setup(circuit):
     AτM = [0x00 for _ in range(M)]
     BτM = [0x00 for _ in range(M)]
     CτM = [0x00 for _ in range(M)]
-    for X, (aM, bM, cM, msg) in zip(XI, circuit.gates):
+    for X, (aM, bM, cM, msg) in zip(XI, gates):
         for m, a in ([(0, aM)] if isinstance(aM, int) else aM.data.items()):
             AτM[m] += X * a
         for m, b in ([(0, bM)] if isinstance(bM, int) else bM.data.items()):
@@ -65,36 +65,36 @@ def setup(circuit):
     β2 = g2 * pymcl.Fr(str(β))
     γ2 = g2 * pymcl.Fr(str(γ))
     δ2 = g2 * pymcl.Fr(str(δ))
-    u1U = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Γ % ρ for m in                      circuit.stmts))
-    v1V = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Δ % ρ for m in range(M) if m not in circuit.stmts))
+    u1U = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Γ % ρ for m in                      skeys))
+    v1V = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Δ % ρ for m in range(M) if m not in skeys))
     x1I = scalar_mult_parallel(g1, fft.pows(τ, I, ρ))
     x2I = scalar_mult_parallel(g2, fft.pows(τ, I, ρ))
     y1I = scalar_mult_parallel(g1, (x * Δ * Zτ % ρ for x in fft.pows(τ, I - 1, ρ)))
     return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
-def prove(circuit, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args):
+def prove(gates, wires, wire_count, skeys, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args):
     r = random.randrange(1, ρ)
     s = random.randrange(1, ρ)
-    M = circuit.get_wire_count()
-    N = circuit.get_gate_count()
+    M = wire_count
+    N = len(gates)
     I = 1 << (N - 1).bit_length()
     J = 1 << (N - 1).bit_length() + 1
     p = fft.pru(I, ρ)
     q = fft.pru(J, ρ)
     wM = []
     getw = lambda tM: sum(wM[m] * t for m, t in ([(0, tM)] if isinstance(tM, int) else tM.data.items())) % ρ # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
-    for n, func in circuit.wires:
+    for n, func in wires:
         res = func(getw, args)
         if n == -1:
             wM.append(res)
         else:
             assert len(res) == n
             wM.extend(res)
-    uU = [wM[m] for m in                      circuit.stmts]
-    vV = [wM[m] for m in range(M) if m not in circuit.stmts]
+    uU = [wM[m] for m in                      skeys]
+    vV = [wM[m] for m in range(M) if m not in skeys]
     awN = []
     bwN = []
     cwN = []
-    for aM, bM, cM, msg in circuit.gates:
+    for aM, bM, cM, msg in gates:
         aw = getw(aM)
         bw = getw(bM)
         cw = getw(cM)
@@ -128,7 +128,7 @@ def prove(circuit, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args):
     C1 = dot_prod_parallel(C1, y1I, HI)
     C1 = dot_prod_parallel(C1, v1V, vV)
     return A1, B2, C1, uU
-def verify(α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
+def verify(svals, α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
     D1 = g1 * pymcl.Fr(str(0))
     D1 = dot_prod_parallel(D1, u1U, uU)
-    return pymcl.pairing(A1, B2) == pymcl.pairing(α1, β2) * pymcl.pairing(D1, γ2) * pymcl.pairing(C1, δ2)
+    return pymcl.pairing(A1, B2) == pymcl.pairing(α1, β2) * pymcl.pairing(D1, γ2) * pymcl.pairing(C1, δ2), list(zip(svals, uU))

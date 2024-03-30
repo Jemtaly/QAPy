@@ -21,10 +21,6 @@ class Circuit:
         self.stmts = {} # the public variables, keys are their indices in the witness vector, and values are their names
         self.MKWIRE(lambda getw, args: 0x01, 'ONE') # add a constant 1 to the witness vector
         self.enums = {} # memoization of the enum values
-    def get_gate_count(self):
-        return len(self.gates)
-    def get_wire_count(self):
-        return self.wire_count
     # the following methods are used to construct the arithmetic circuits
     def MKGATE(self, xGal, yGal, zGal, *, msg = 'assertion error'):
         # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
