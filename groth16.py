@@ -50,11 +50,11 @@ def setup(circuit):
     BτM = [0x00 for _ in range(M)]
     CτM = [0x00 for _ in range(M)]
     for X, (aM, bM, cM, msg) in zip(XI, circuit.gates):
-        for m, a in aM.data.items():
+        for m, a in ([(0, aM)] if isinstance(aM, int) else aM.data.items()):
             AτM[m] += X * a
-        for m, b in bM.data.items():
+        for m, b in ([(0, bM)] if isinstance(bM, int) else bM.data.items()):
             BτM[m] += X * b
-        for m, c in cM.data.items():
+        for m, c in ([(0, cM)] if isinstance(cM, int) else cM.data.items()):
             CτM[m] += X * c
     Zτ = pow(τ, I, ρ) - 0x01 # Z(τ), where Z(X) = Πᵢ₌₀ᴵ⁻¹ (X - pⁱ)
     Γ = pow(γ, -1, ρ)
@@ -81,7 +81,7 @@ def prove(circuit, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args):
     p = fft.pru(I, ρ)
     q = fft.pru(J, ρ)
     wM = []
-    getw = lambda tM: sum(wM[m] * t for m, t in tM.data.items()) % ρ # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
+    getw = lambda tM: sum(wM[m] * t for m, t in ([(0, tM)] if isinstance(tM, int) else tM.data.items())) % ρ # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
     for n, func in circuit.wires:
         res = func(getw, args)
         if n == -1:

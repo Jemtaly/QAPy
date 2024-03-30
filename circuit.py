@@ -34,10 +34,8 @@ class Circuit:
             if isinstance(zGal, int):
                 assert zGal == 0x00, msg
                 return
-            xGal = Var({})
-            yGal = Var({})
-        elif isinstance(zGal, int):
-            zGal = Var({0: zGal})
+            xGal = 0
+            yGal = 0
         self.gates.append((xGal, yGal, zGal, msg))
     def MKWIRE(self, func, name = None):
         # Add a new variable that defined by the given function to the witness vector.
@@ -64,8 +62,6 @@ class Circuit:
         return self.MKWIRE(lambda getw, args: args[name], name if public else None)
     def REVEAL(self, name, xGal, *, msg = 'reveal error'):
         # Make a variable public.
-        if isinstance(xGal, int):
-            xGal = Var({0: xGal})
         rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
         self.ASSERT_EQZ(self.SUB(xGal, rGal), msg = msg)
         return rGal
@@ -104,8 +100,6 @@ class Circuit:
             return 0x00
         if isinstance(yGal, int):
             return Var({k: v * pow(yGal, -1, ρ) % ρ for k, v in xGal.data.items()})
-        if isinstance(xGal, int):
-            xGal = Var({0: xGal})
         zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), -1, ρ) % ρ)
         self.MKGATE(zGal, yGal, xGal, msg = msg)
         return zGal
@@ -270,8 +264,6 @@ class Circuit:
         nLen = len(lLst)
         if nLen == 0:
             return
-        lLst = [Var({0: sGal}) if isinstance(sGal, int) else sGal for sGal in lLst]
-        rLst = [Var({0: dGal}) if isinstance(dGal, int) else dGal for dGal in rLst]
         if nLen == 1:
             self.ASSERT_EQZ(self.SUB(lLst[0], rLst[0]), msg = msg)
             return
@@ -384,10 +376,6 @@ class Circuit:
         if isinstance(xGal, int) and isinstance(yGal, int):
             qGal, rGal = divmod(xGal, yGal)
             return [qGal >> iLen & 0x01 for iLen in range(qLen)], [rGal >> iLen & 0x01 for iLen in range(rLen)]
-        if isinstance(xGal, int):
-            xGal = Var({0: xGal})
-        if isinstance(yGal, int):
-            yGal = Var({0: yGal})
         qGal = self.MKWIRE(lambda getw, args: getw(xGal) // getw(yGal))
         rGal = self.MKWIRE(lambda getw, args: getw(xGal) % getw(yGal))
         self.MKGATE(qGal, yGal, self.SUB(xGal, rGal), msg = msg) # assert y * q == x - r
