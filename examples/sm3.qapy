@@ -1,0 +1,55 @@
+ROL = lambda x, r: x << r | x >> 32 - r
+P0 = lambda x: x ^ ROL(x, 9) ^ ROL(x, 17)
+P1 = lambda x: x ^ ROL(x, 15) ^ ROL(x, 23)
+F0 = lambda x, y, z: x ^ y ^ z
+G0 = lambda x, y, z: x ^ y ^ z
+def F1(x, y, z):
+    t = x & y
+    return [t[i] + z[i] * (x[i] + y[i] - t[i] * 2) for i in range(32)]
+def G1(x, y, z):
+    return [y[i] if x[i] else z[i] for i in range(32)]
+T0 = b32(0x79cc4519)
+T1 = b32(0x7a879d8a)
+def compress(V, I):
+    W = [b32(0) for _ in range(68)]
+    for j in range(0, 16):
+        W[j] = I[j]
+    for j in range(16, 68):
+        W[j] = P1(W[j - 16] ^ W[j - 9] ^ ROL(W[j - 3], 15)) ^ ROL(W[j - 13], 7) ^ W[j - 6]
+    A = V[0]
+    B = V[1]
+    C = V[2]
+    D = V[3]
+    E = V[4]
+    F = V[5]
+    G = V[6]
+    H = V[7]
+    for j in range(0, 64):
+        if j < 16:
+            SS1 = ROL({ROL(A, 12), E, ROL(T0, j)}, 7)
+            SS2 = SS1 ^ ROL(A, 12)
+            TT1 = {F0(A, B, C), D, SS2, W[j] ^ W[j + 4]}
+            TT2 = {G0(E, F, G), H, SS1, W[j]}
+        else:
+            SS1 = ROL({ROL(A, 12), E, ROL(T1, j)}, 7)
+            SS2 = SS1 ^ ROL(A, 12)
+            TT1 = {F1(A, B, C), D, SS2, W[j] ^ W[j + 4]}
+            TT2 = {G1(E, F, G), H, SS1, W[j]}
+        A, B, C, D, E, F, G, H = TT1, A, ROL(B, 9), C, P0(TT2), E, ROL(F, 19), G
+    V[0] = A ^ V[0]
+    V[1] = B ^ V[1]
+    V[2] = C ^ V[2]
+    V[3] = D ^ V[3]
+    V[4] = E ^ V[4]
+    V[5] = F ^ V[5]
+    V[6] = G ^ V[6]
+    V[7] = H ^ V[7]
+    return V
+V = [
+    b32(0x7380166f), b32(0x4914b2b9), b32(0x172442d7), b32(0xda8a0600),
+    b32(0xa96f30bc), b32(0x163138aa), b32(0xe38dee4d), b32(0xb0fb0e4e),
+]
+W = [b32(secret(fmt('W[{}]', i))) for i in range(16)]
+V = compress(V, W)
+for i in range(8):
+    reveal(fmt('V[{}]', i), V[i])

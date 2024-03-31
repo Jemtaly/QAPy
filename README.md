@@ -6,6 +6,7 @@ A QAP compiler implemented in Python, used to compile the codes written in a Pyt
 
 - Python 3.9+
 - [pymcl](https://github.com/Jemtaly/pymcl)
+- dill
 
 ## Copyright Notice
 
