@@ -15,13 +15,31 @@ class Circuit:
     # operations are represented as the constraints in the circuit. Besides, this class also implements
     # the setup, prove, and verify methods of the Groth16 zk-SNARK.
     def __init__(self):
-        self.gates = [] # the constraints in the circuit, see the MKGATE method for details
-        self.wires = [] # functions to generate the variables in the witness vector
         self.wire_count = 0 # the number of variables in the witness vector
+        self.funcs = [] # functions to generate the variables in the witness vector
         self.stmts = {} # the public variables, keys are their indices in the witness vector, and values are their names
         self.MKWIRE(lambda getw, args: 0x01, 'ONE') # add a constant 1 to the witness vector
+        self.gates = [] # the constraints in the circuit, see the MKGATE method for details
         self.enums = {} # memoization of the enum values
-    # the following methods are used to construct the arithmetic circuits
+    def MKWIRE(self, func, name = None):
+        # Add a new variable that defined by the given function to the witness vector.
+        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
+        # that is defined by the product of the values of y and z in the witness vector, and then return
+        # this variable.
+        i = self.wire_count
+        self.funcs.append((-1, func))
+        self.wire_count += 1
+        # if name is specified, the variable is public
+        if name is not None:
+            self.stmts[i] = name
+        return Var({i: 0x01})
+    def MKWIRES(self, func, n):
+        # Add n new variables that defined by the given function to the witness vector, and then return
+        # these variables as a list.
+        i = self.wire_count
+        self.funcs.append((n, func))
+        self.wire_count += n
+        return [Var({i + j: 0x01}) for j in range(n)]
     def MKGATE(self, xGal, yGal, zGal, *, msg = 'assertion error'):
         # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
         # x * y = z, msg is the error message when the constraint is not satisfied.
@@ -33,25 +51,6 @@ class Circuit:
             xGal = 0
             yGal = 0
         self.gates.append((xGal, yGal, zGal, msg))
-    def MKWIRE(self, func, name = None):
-        # Add a new variable that defined by the given function to the witness vector.
-        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
-        # that is defined by the product of the values of y and z in the witness vector, and then return
-        # this variable.
-        i = self.wire_count
-        self.wires.append((-1, func))
-        self.wire_count += 1
-        # if name is specified, the variable is public
-        if name is not None:
-            self.stmts[i] = name
-        return Var({i: 0x01})
-    def MKWIRES(self, func, n):
-        # Add n new variables that defined by the given function to the witness vector, and then return
-        # these variables as a list.
-        i = self.wire_count
-        self.wires.append((n, func))
-        self.wire_count += n
-        return [Var({i + j: 0x01}) for j in range(n)]
     def PARAM(self, name, public = False):
         # Add an input parameter to the circuit, the value of the parameter can be set when calling the
         # prove method.

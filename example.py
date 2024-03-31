@@ -81,10 +81,10 @@ if __name__ == '__main__':
     print('Number of gates:', len(test.gates))
     print('Number of wires:', test.wire_count)
     with Timer('Setting up QAP...'):
-        α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(test.gates, test.wire_count, test.stmts.keys())
+        α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(test.wire_count, test.stmts.keys(), test.gates)
     with Timer('Generating proof...'):
         args = {'W[{:#04x}]'.format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
-        A1, B2, C1, uU = groth16.prove(test.gates, test.wires, test.wire_count, test.stmts.keys(), α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args)
+        A1, B2, C1, uU = groth16.prove(test.wire_count, test.funcs, test.stmts.keys(), test.gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args)
     with Timer('Verifying...'):
         passed, outs = groth16.verify(test.stmts.values(), α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
     if passed:
