@@ -54,7 +54,7 @@ class Circuit:
     def PARAM(self, name, public = False):
         # Add an input parameter to the circuit, the value of the parameter can be set when calling the
         # prove method.
-        return self.MKWIRE(lambda getw, args: args[name], name if public else None)
+        return self.MKWIRE(lambda getw, args: args[name] % ρ, name if public else None)
     def REVEAL(self, name, xGal, *, msg = 'reveal error'):
         # Make a variable public.
         rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
