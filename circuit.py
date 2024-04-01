@@ -21,10 +21,10 @@ class Circuit:
         self.gates = [] # the constraints in the circuit, see the MKGATE method for details
         self.enums = {} # memoization of the enum values
     def MKWIRE(self, func, name = None):
-        # Add a new entry that defined by the given function to the witness vector.
-        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new entry x that
-        # is defined by the product of the values of y and z in the witness vector, and then return this
-        # entry as a variable.
+        # Add a new entry defined by the given function to the witness vector.
+        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new entry that is
+        # defined by the product of the values of y and z to the witness vector, and assign a variable
+        # corresponding to the entry to x.
         i = self.wire_count
         self.funcs.append((-1, func))
         self.wire_count += 1
@@ -33,8 +33,8 @@ class Circuit:
             self.stmts[i] = name
         return Var({i: 0x01})
     def MKWIRES(self, func, n):
-        # Add n new entries that defined by the given function to the witness vector, and then return
-        # them as a list of variables.
+        # Add n new entries defined by the given function to the witness vector, and return them as a
+        # list of variables.
         i = self.wire_count
         self.funcs.append((n, func))
         self.wire_count += n
@@ -51,11 +51,11 @@ class Circuit:
             yGal = 0
         self.gates.append((xGal, yGal, zGal, msg))
     def PARAM(self, name, public = False):
-        # Add an input parameter to the circuit, the value of the parameter can be set when calling the
-        # prove method.
+        # Add a new entry to the witness vector, whose value will be determined by the value correspond-
+        # ing to the key named name in the args dictionary at runtime.
         return self.MKWIRE(lambda getw, args: args[name] % ρ, name if public else None)
     def REVEAL(self, name, xGal, *, msg = 'reveal error'):
-        # Add a public entry to the circuit, whose value is equal to that of the given variable.
+        # Add a public entry to the witness vetor, whose value is equal to that of the given variable.
         rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
         self.ASSERT_EQZ(self.SUB(xGal, rGal), msg = msg)
         return rGal
