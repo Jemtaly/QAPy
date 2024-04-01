@@ -20,13 +20,13 @@ usage: main.py compile [-h] [-g GATES] [-f FUNCS] [-n NAMES] program
 Compile a program and write the constraints, witness generation functions, and public entry names to files.
 
 positional arguments:
-  program     The program to compile.
+  program     path of the source code
 
 options:
   -h, --help  show this help message and exit
-  -g GATES    The file to write the constraints to. (Default: a.gates)
-  -f FUNCS    The file to write the witness generation functions to. (Default: a.funcs)
-  -n NAMES    The file to write the public entry names to. (Default: a.names)
+  -g GATES    path to write the constraints to (default: a.gates)
+  -f FUNCS    path to write the witness generation functions to (default: a.funcs)
+  -n NAMES    path to write the public entry names to (default: a.names)
 ```
 
 ### Setup
@@ -38,9 +38,9 @@ Set up the parameters for proving and verifying and write them to files.
 
 options:
   -h, --help  show this help message and exit
-  -g GATES    The file to read the constraints from. (Default: a.gates)
-  -p PROVE    The file to write the parameters for proving to. (Default: a.prove)
-  -v VERIF    The file to write the parameters for verifying to. (Default: a.verif)
+  -g GATES    path to read the constraints from (default: a.gates)
+  -p PROVE    path to write the parameters for proving to (default: a.prove)
+  -v VERIF    path to write the parameters for verifying to (default: a.verif)
 ```
 
 ### Prove
@@ -52,12 +52,12 @@ Generate a proof and write it to a file.
 
 options:
   -h, --help  show this help message and exit
-  -g GATES    The file to read the constraints from. (Default: a.gates)
-  -f FUNCS    The file to read the witness generation functions from. (Default: a.funcs)
-  -p PROVE    The file to read the parameters for proving from. (Default: a.prove)
+  -g GATES    path to read the constraints from (default: a.gates)
+  -f FUNCS    path to read the witness generation functions from (default: a.funcs)
+  -p PROVE    path to read the parameters for proving from (default: a.prove)
   -a [ARGS ...], --args [ARGS ...]
-              The arguments to the program, in the form of key=value pairs.
-  -P PROOF    The file to write the proof to. (Default: a.proof)
+              the arguments to the program as key=value pairs
+  -P PROOF    path to write the proof to (default: a.proof)
 ```
 
 ### Verify
@@ -69,9 +69,9 @@ Verify a proof.
 
 options:
   -h, --help  show this help message and exit
-  -n NAMES    The file to read the public entry names from. (Default: a.names)
-  -v VERIF    The file to read the parameters for verifying from. (Default: a.verif)
-  -P PROOF    The file to read the proof from. (Default: a.proof)
+  -n NAMES    path to read the public entry names from (default: a.names)
+  -v VERIF    path to read the parameters for verifying from (default: a.verif)
+  -P PROOF    path to read the proof from (default: a.proof)
 ```
 
 There are several sample codes in the `examples` directory. Take `examples/sha256.qapy` as an example, which performs a SHA-256 compression function without padding on one block of input data and outputs the hash value. You can compile, setup, prove, and verify it by running the following commands:
