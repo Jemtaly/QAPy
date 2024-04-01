@@ -1,6 +1,6 @@
 # QAPy
 
-A QAP compiler implemented in Python, used to compile the codes written in a Python-like programming laguage into its QAP form, and perform Groth16's setup, proof and verification steps.
+A QAP compiler implemented in Python, used to compile the codes written in a Python-like programming laguage into its QAP form, and perform setup, proof and verification steps of [Groth16](https://eprint.iacr.org/2016/260.pdf).
 
 ## Requirements
 
@@ -10,7 +10,7 @@ A QAP compiler implemented in Python, used to compile the codes written in a Pyt
 
 ## Usage
 
-QAPy provides a command-line tool, `main.py`, for compiling programs and performing Groth16 parameter initialization, proof generation, and verification. The following is a brief introduction to the usage of the tool.
+QAPy provides a command-line tool, `main.py`, for compiling programs and performing Groth16 parameter setup, proof generation, and verification steps. The following is a brief introduction to the usage of the tool.
 
 ### Compile
 
