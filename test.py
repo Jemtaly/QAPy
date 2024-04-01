@@ -80,8 +80,9 @@ if __name__ == '__main__':
             "for i in range(8):\n"
             "    reveal(fmt('V[{}]', i), V[i])\n"
         )
-    print('Number of gates:', len(test.gates))
-    print('Number of wires:', test.wire_count)
+    print('Dimension of the witness vector:', test.wire_count)
+    print('Number of constraints:', len(test.gates))
+    print('Number of public entries:', len(test.stmts))
     with Timer('Setting up QAP...'):
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(test.wire_count, test.stmts.keys(), test.gates)
     with Timer('Generating proof...'):
@@ -91,6 +92,6 @@ if __name__ == '__main__':
         passed, outs = groth16.verify(test.stmts.values(), α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
     if passed:
         print('Verification passed!')
-        print('Public witness:', '{{{}}}'.format(', '.join('{} = {:#010x}'.format(k, u) for k, u in outs)))
+        print('Public entries:', '{{{}}}'.format(', '.join('{} = {:#010x}'.format(k, u) for k, u in outs)))
     else:
         print('Verification failed!')

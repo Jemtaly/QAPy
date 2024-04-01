@@ -2,7 +2,7 @@ import pymcl
 import fft
 import multiprocessing
 import random
-# the BLS12-381 curve parameters
+# the parameters of the elliptic curve
 ρ = pymcl.r
 g1 = pymcl.g1
 g2 = pymcl.g2

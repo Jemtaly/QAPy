@@ -2,40 +2,39 @@ import waksman
 import pymcl
 ρ = pymcl.r
 class Var:
-    # All variables in a program are linear combinations of the variables in its witness vector, so they
-    # can be represented by a dictionary that maps the indices of the variables in the witness vector to
+    # All variables in a program are linear combinations of the entries in its witness vector, so they
+    # can be represented by a dictionary that maps the indices of the entries in the witness vector to
     # their coefficients, for example, x = w₀ + 5w₂ + 7w₃ can be represented as {0: 1, 2: 5, 3: 7}, note
-    # that the variables with coefficient 0 are always omitted.
+    # that the entries with coefficient 0 are always omitted.
     # Besides, constants are always represented by the integer itself.
     def __init__(self, data):
         self.data = data
 class Circuit:
     # The Circuit class is used to construct the arithmetic circuits, it provides a set of methods to
-    # create and manipulate the variables, and to perform arithmetic operations on them. The arithmetic
-    # operations are represented as the constraints in the circuit. Besides, this class also implements
-    # the setup, prove, and verify methods of the Groth16 zk-SNARK.
+    # create entries in the witness vector, add constraints to the circuit, and perform arithmetic and
+    # other operations on the variables linearly combined by the entries in the witness vector.
     def __init__(self):
-        self.wire_count = 0 # the number of variables in the witness vector
-        self.funcs = [] # functions to generate the variables in the witness vector
-        self.stmts = {} # the public variables, keys are their indices in the witness vector, and values are their names
+        self.wire_count = 0 # dimension of the witness vector
+        self.funcs = [] # functions to generate the witness vector entries
+        self.stmts = {} # the public entries, keys are their indices in the witness vector, and values are their names
         self.MKWIRE(lambda getw, args: 0x01, 'ONE') # add a constant 1 to the witness vector
         self.gates = [] # the constraints in the circuit, see the MKGATE method for details
         self.enums = {} # memoization of the enum values
     def MKWIRE(self, func, name = None):
-        # Add a new variable that defined by the given function to the witness vector.
-        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new variable x
-        # that is defined by the product of the values of y and z in the witness vector, and then return
-        # this variable.
+        # Add a new entry that defined by the given function to the witness vector.
+        # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new entry x that
+        # is defined by the product of the values of y and z in the witness vector, and then return this
+        # entry as a variable.
         i = self.wire_count
         self.funcs.append((-1, func))
         self.wire_count += 1
-        # if name is specified, the variable is public
+        # if name is specified, the entry will be treated as public
         if name is not None:
             self.stmts[i] = name
         return Var({i: 0x01})
     def MKWIRES(self, func, n):
-        # Add n new variables that defined by the given function to the witness vector, and then return
-        # these variables as a list.
+        # Add n new entries that defined by the given function to the witness vector, and then return
+        # them as a list of variables.
         i = self.wire_count
         self.funcs.append((n, func))
         self.wire_count += n
@@ -56,7 +55,7 @@ class Circuit:
         # prove method.
         return self.MKWIRE(lambda getw, args: args[name] % ρ, name if public else None)
     def REVEAL(self, name, xGal, *, msg = 'reveal error'):
-        # Make a variable public.
+        # Add a public entry to the circuit, whose value is equal to that of the given variable.
         rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
         self.ASSERT_EQZ(self.SUB(xGal, rGal), msg = msg)
         return rGal
