@@ -18,8 +18,8 @@ class StoreKVPairs(argparse.Action):
 def main():
     parser = argparse.ArgumentParser(description = 'QAPy Compiler and Groth16 Prover/Verifier')
     subparsers = parser.add_subparsers(dest = 'command', required = True, help = 'sub-command')
-    parser_compile = subparsers.add_parser('compile', help = 'compile a program', description = 'Compile a program and write the constraints, witness generation functions, and public entry names to files.')
-    parser_compile.add_argument('program', type = str, help = 'path of the source code')
+    parser_compile = subparsers.add_parser('compile', help = 'compile the source code', description = 'Compile the source code and write the constraints, witness generation functions, and public entry names to files.')
+    parser_compile.add_argument('file', type = str, help = 'path to the source code')
     parser_compile.add_argument('-g', '--gates', type = str, default = 'a.gates', help = 'path to write the constraints to (default: a.gates)')
     parser_compile.add_argument('-f', '--funcs', type = str, default = 'a.funcs', help = 'path to write the witness generation functions to (default: a.funcs)')
     parser_compile.add_argument('-n', '--names', type = str, default = 'a.names', help = 'path to write the public entry names to (default: a.names)')
@@ -40,9 +40,9 @@ def main():
     args = parser.parse_args()
     if args.command == 'compile':
         test = compiler.Compiler()
-        with open(args.program, 'r') as program:
-            print('Compiling program...')
-            test.compile(program.read())
+        with open(args.file, 'r') as file:
+            print('Compiling the source code...')
+            test.compile(file.read())
         print('Dimension of the witness vector:', test.wire_count)
         print('Number of constraints:', len(test.gates))
         print('Number of public entries:', len(test.stmts))

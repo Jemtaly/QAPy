@@ -56,7 +56,7 @@ class Program(ast.NodeVisitor, circuit.Circuit):
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0x00] * asint(n))[:n] if isbin(x) else self.BINARY(asgal(x), asint(n)),
+            'bin': lambda x, n: (x + [0x00] * min(asint(n), 1))[:min(n, 1)] if isbin(x) else self.BINARY(asgal(x), min(asint(n), 1)),
             'fmt': lambda s, *args: asstr(s).format(*map(asint, args)),
             'log': lambda s: print(asstr(s)),
             'binadd': lambda x, y, c = 0x00: self.BINADD(asbin(x), asbin(y), asgal(c)),
@@ -79,6 +79,90 @@ class Program(ast.NodeVisitor, circuit.Circuit):
         return 'break', None
     def visit_Return(self, node):
         return 'return', self.visit(node.value) if node.value else None
+    def visit_Pass(self, node):
+        return None, None
+    def visit_Expr(self, node):
+        self.visit(node.value)
+        return None, None
+    def visit_FunctionDef(self, node):
+        def_stack = self.stack
+        def func(*args):
+            if len(args) != len(node.args.args):
+                raise TypeError('mismatched number of arguments')
+            call_stack = self.stack
+            self.stack = def_stack + [{}]
+            for target, arg in zip(node.args.args, args):
+                self.stack[-1][target.arg] = arg
+            for stmt in node.body:
+                flag, result = self.visit(stmt)
+                if flag == 'break' or flag == 'continue':
+                    raise SyntaxError('unexpected ' + flag)
+                if flag == 'return':
+                    break
+            else:
+                result = None
+            self.stack = call_stack
+            return result
+        self.stack[-1][node.name] = func
+        return None, None
+    def visit_Lambda(self, node):
+        def_stack = self.stack
+        def func(*args):
+            if len(args) != len(node.args.args):
+                raise TypeError('mismatched number of arguments')
+            call_stack = self.stack
+            self.stack = def_stack + [{}]
+            for target, arg in zip(node.args.args, args):
+                self.stack[-1][target.arg] = arg
+            result = self.visit(node.body)
+            self.stack = call_stack
+            return result
+        return func
+    def visit_Assign(self, node):
+        def assign(target, value):
+            if isinstance(target, ast.Tuple):
+                if not isinstance(value, tuple) or len(target.elts) != len(value):
+                    raise TypeError('mismatched number of targets and values in assignment')
+                for target, value in zip(target.elts, value):
+                    assign(target, value)
+                return
+            if isinstance(target, ast.Name):
+                self.stack[-1][target.id] = value
+                return
+            slices = []
+            while not isinstance(target, ast.Name):
+                if not isinstance(target, ast.Subscript):
+                    raise SyntaxError('invalid assignment target')
+                slices.append(self.visit(target.slice))
+                target = target.value
+            dest = self.visit(target)
+            outer, inner = shape(dest)
+            enums = []
+            for slice in reversed(slices):
+                if len(outer) == 0:
+                    raise TypeError('cannot index a scalar')
+                keys, *outer = outer
+                enums.append(self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
+            if (tuple(outer), inner) != shape(value):
+                raise TypeError('inconsistent shape of target and value in indexed assignment')
+            self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
+        value = self.visit(node.value)
+        for target in node.targets:
+            assign(target, value)
+        return None, None
+    def visit_Delete(self, node):
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                raise SyntaxError('invalid deletion target')
+            self.stack[-1].pop(target.id)
+        return None, None
+    def visit_Assert(self, node):
+        test = self.visit(node.test)
+        if node.msg is None:
+            self.ASSERT_NEZ(asgal(test))
+        else:
+            self.ASSERT_NEZ(asgal(test), msg = asstr(self.visit(node.msg)))
+        return None, None
     def visit_If(self, node):
         if asint(self.visit(node.test)):
             for stmt in node.body:
@@ -167,7 +251,10 @@ class Program(ast.NodeVisitor, circuit.Circuit):
                 if all(asint(self.visit(test)) for test in generator.ifs):
                     yield from visit(generators)
             self.stack = call_stack
-        return list(visit(node.generators))
+        res = list(visit(node.generators))
+        if len({shape(x) for x in res}) != 1:
+            raise TypeError('inconsistent shape of list elements')
+        return res
     def visit_DictComp(self, node):
         def visit(generators):
             if len(generators) == 0:
@@ -192,97 +279,28 @@ class Program(ast.NodeVisitor, circuit.Circuit):
                 if all(asint(self.visit(test)) for test in generator.ifs):
                     yield from visit(generators)
             self.stack = call_stack
-        return dict(visit(node.generators))
+        res = dict(visit(node.generators))
+        if len({shape(x) for x in res.values()}) != 1:
+            raise TypeError('inconsistent shape of dict values')
+        return res
+    def visit_List(self, node):
+        res = list(self.visit(elt) for elt in node.elts)
+        if len({shape(x) for x in res}) != 1:
+            raise TypeError('inconsistent shape of list elements')
+        return res
+    def visit_Dict(self, node):
+        res = dict((asint(self.visit(key)), self.visit(value)) for key, value in zip(node.keys, node.values))
+        if len({shape(x) for x in res.values()}) != 1:
+            raise TypeError('inconsistent shape of dict values')
+        return res
     def visit_Tuple(self, node):
         return tuple(self.visit(elt) for elt in node.elts)
-    def visit_List(self, node):
-        return list(self.visit(elt) for elt in node.elts)
-    def visit_Dict(self, node):
-        return dict((asint(self.visit(key)), self.visit(value)) for key, value in zip(node.keys, node.values))
-    def visit_Pass(self, node):
-        return None, None
-    def visit_Expr(self, node):
-        self.visit(node.value)
-        return None, None
-    def visit_Assert(self, node):
-        test = self.visit(node.test)
-        if node.msg is None:
-            self.ASSERT_NEZ(asgal(test))
-        else:
-            self.ASSERT_NEZ(asgal(test), msg = asstr(self.visit(node.msg)))
-        return None, None
-    def visit_FunctionDef(self, node):
-        def_stack = self.stack
-        def func(*args):
-            if len(args) != len(node.args.args):
-                raise TypeError('mismatched number of arguments')
-            call_stack = self.stack
-            self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args):
-                self.stack[-1][target.arg] = arg
-            for stmt in node.body:
-                flag, result = self.visit(stmt)
-                if flag == 'break' or flag == 'continue':
-                    raise SyntaxError('unexpected ' + flag)
-                if flag == 'return':
-                    break
-            else:
-                result = None
-            self.stack = call_stack
-            return result
-        self.stack[-1][node.name] = func
-        return None, None
-    def visit_Lambda(self, node):
-        def_stack = self.stack
-        def func(*args):
-            if len(args) != len(node.args.args):
-                raise TypeError('mismatched number of arguments')
-            call_stack = self.stack
-            self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args):
-                self.stack[-1][target.arg] = arg
-            result = self.visit(node.body)
-            self.stack = call_stack
-            return result
-        return func
-    def visit_Assign(self, node):
-        def assign(target, value):
-            if isinstance(target, ast.Tuple):
-                if not isinstance(value, tuple) or len(target.elts) != len(value):
-                    raise TypeError('mismatched number of targets and values in assignment')
-                for target, value in zip(target.elts, value):
-                    assign(target, value)
-                return
-            if isinstance(target, ast.Name):
-                self.stack[-1][target.id] = value
-                return
-            slices = []
-            while not isinstance(target, ast.Name):
-                if not isinstance(target, ast.Subscript):
-                    raise SyntaxError('invalid assignment target')
-                slices.append(self.visit(target.slice))
-                target = target.value
-            dest = self.visit(target)
-            outer, inner = shape(dest)
-            enums = []
-            for slice in reversed(slices):
-                if len(outer) == 0:
-                    raise TypeError('cannot index a scalar')
-                keys, *outer = outer
-                enums.append(self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
-            if (tuple(outer), inner) != shape(value):
-                raise TypeError('inconsistent shape of target and value in indexed assignment')
-            self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
-        value = self.visit(node.value)
-        for target in node.targets:
-            assign(target, value)
-        return None, None
-    def visit_Delete(self, node):
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                raise SyntaxError('invalid deletion target')
-            self.stack[-1].pop(target.id)
-        return None, None
+    def visit_Constant(self, node):
+        if isinstance(node.value, int):
+            return node.value % ρ
+        if isinstance(node.value, str):
+            return node.value
+        raise SyntaxError('invalid constant')
     def visit_Name(self, node):
         for scope in reversed(self.stack):
             if node.id in scope:
@@ -314,12 +332,6 @@ class Program(ast.NodeVisitor, circuit.Circuit):
             else:
                 args.append(asbin(self.visit(elt)))
         return self.BINSUM(args, cGal = negs)
-    def visit_Constant(self, node):
-        if isinstance(node.value, int):
-            return node.value % ρ
-        if isinstance(node.value, str):
-            return node.value
-        raise SyntaxError('invalid constant')
     def visit_BinOp(self, node):
         left = self.visit(node.left)
         right = self.visit(node.right)
