@@ -20,11 +20,11 @@ def asstr(x):
     if isinstance(x, str):
         return x
     raise TypeError('expected a string')
-def ascon(x):
+def asint(x):
     if isinstance(x, int):
         return x
     raise TypeError('expected a constant value')
-def asint(x):
+def assgn(x):
     if isinstance(x, int):
         return (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2
     raise TypeError('expected a constant value')
@@ -53,14 +53,14 @@ class Program(Circuit):
     def __init__(self):
         Circuit.__init__(self)
         self.stack = [{
-            'range': lambda *args: range(*map(asint, args)),
+            'range': lambda *args: range(*map(assgn, args)),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
             'b8':  lambda x: (x + [0x00] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0x00] * min(asint(n), 1))[:min(n, 1)] if isbin(x) else self.BINARY(asgal(x), min(asint(n), 1)),
-            'fmt': lambda s, *args: asstr(s).format(*map(asint, args)),
+            'bin': lambda x, n: (x + [0x00] * min(assgn(n), 1))[:min(n, 1)] if isbin(x) else self.BINARY(asgal(x), min(assgn(n), 1)),
+            'fmt': lambda s, *args: asstr(s).format(*map(assgn, args)),
             'log': lambda s: print(asstr(s)),
             'binadd': lambda x, y, c = 0x00: self.BINADD(asbin(x), asbin(y), asgal(c)),
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
@@ -168,15 +168,8 @@ class Program(Circuit):
                 raise SyntaxError('invalid deletion target')
             self.stack[-1].pop(target.id)
         return None, None
-    def visit_Assert(self, node):
-        test = self.visit(node.test)
-        if node.msg is None:
-            self.ASSERT_NEZ(asgal(test))
-        else:
-            self.ASSERT_NEZ(asgal(test), msg = asstr(self.visit(node.msg)))
-        return None, None
     def visit_If(self, node):
-        if ascon(self.visit(node.test)):
+        if asint(self.visit(node.test)):
             for stmt in node.body:
                 flag, result = self.visit(stmt)
                 if flag == 'continue' or flag == 'break' or flag == 'return':
@@ -188,7 +181,7 @@ class Program(Circuit):
                     return flag, result
         return None, None
     def visit_While(self, node):
-        while ascon(self.visit(node.test)):
+        while asint(self.visit(node.test)):
             for stmt in node.body:
                 flag, result = self.visit(stmt)
                 if flag == 'continue' or flag == 'break' or flag == 'return':
@@ -260,7 +253,7 @@ class Program(Circuit):
             self.stack = self.stack + [{}]
             for value in iter:
                 self.stack[-1][generator.target.id] = value
-                if all(ascon(self.visit(test)) for test in generator.ifs):
+                if all(asint(self.visit(test)) for test in generator.ifs):
                     yield from visit(generators)
             self.stack = call_stack
         res = list(visit(node.generators))
@@ -270,7 +263,7 @@ class Program(Circuit):
     def visit_DictComp(self, node):
         def visit(generators):
             if len(generators) == 0:
-                yield ascon(self.visit(node.key)), self.visit(node.value)
+                yield asint(self.visit(node.key)), self.visit(node.value)
                 return
             generator, *generators = generators
             if not isinstance(generator.target, ast.Name):
@@ -288,7 +281,7 @@ class Program(Circuit):
             self.stack = self.stack + [{}]
             for value in iter:
                 self.stack[-1][generator.target.id] = value
-                if all(ascon(self.visit(test)) for test in generator.ifs):
+                if all(asint(self.visit(test)) for test in generator.ifs):
                     yield from visit(generators)
             self.stack = call_stack
         res = dict(visit(node.generators))
@@ -301,7 +294,7 @@ class Program(Circuit):
             raise TypeError('inconsistent shape of list elements')
         return res
     def visit_Dict(self, node):
-        res = dict((ascon(self.visit(key)), self.visit(value)) for key, value in zip(node.keys, node.values))
+        res = dict((asint(self.visit(key)), self.visit(value)) for key, value in zip(node.keys, node.values))
         if len({shape(x) for x in res.values()}) != 1:
             raise TypeError('inconsistent shape of dict values')
         return res
@@ -368,9 +361,9 @@ class Program(Circuit):
         if isinstance(node.op, ast.BitXor):
             return self.BITXOR(asbin(left), asbin(right))
         if isinstance(node.op, ast.LShift):
-            return self.SHL(asbin(left), asint(right))
+            return self.SHL(asbin(left), assgn(right))
         if isinstance(node.op, ast.RShift):
-            return self.SHR(asbin(left), asint(right))
+            return self.SHR(asbin(left), assgn(right))
         raise SyntaxError('unsupported binary operation')
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)
@@ -404,13 +397,13 @@ class Program(Circuit):
             elif isinstance(op, ast.NotEq):
                 result = self.AND(result, self.NEZ(self.SUB(self.GALOIS(left) if isbin(left) else asgal(left), self.GALOIS(right) if isbin(right) else asgal(right))))
             elif isinstance(op, ast.Lt):
-                result = self.AND(result, self.BINLT(left, right) if isbin(left) and isbin(right) else asint(left) < asint(right))
+                result = self.AND(result, self.BINLT(left, right) if isbin(left) and isbin(right) else assgn(left) < assgn(right))
             elif isinstance(op, ast.LtE):
-                result = self.AND(result, self.BINLE(left, right) if isbin(left) and isbin(right) else asint(left) <= asint(right))
+                result = self.AND(result, self.BINLE(left, right) if isbin(left) and isbin(right) else assgn(left) <= assgn(right))
             elif isinstance(op, ast.Gt):
-                result = self.AND(result, self.BINGT(left, right) if isbin(left) and isbin(right) else asint(left) > asint(right))
+                result = self.AND(result, self.BINGT(left, right) if isbin(left) and isbin(right) else assgn(left) > assgn(right))
             elif isinstance(op, ast.GtE):
-                result = self.AND(result, self.BINGE(left, right) if isbin(left) and isbin(right) else asint(left) >= asint(right))
+                result = self.AND(result, self.BINGE(left, right) if isbin(left) and isbin(right) else assgn(left) >= assgn(right))
             else:
                 raise SyntaxError('unsupported comparison')
             left = right
