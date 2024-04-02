@@ -108,7 +108,7 @@ class Program(Circuit):
             for stmt in node.body:
                 flag, result = self.visit(stmt)
                 if flag == 'break' or flag == 'continue':
-                    raise SyntaxError('unexpected ' + flag)
+                    raise SyntaxError('unexpected {} at line {}'.format(flag, stmt.lineno))
                 if flag == 'return':
                     break
             else:
@@ -426,7 +426,7 @@ class Compiler(Program):
         for stmt in ast.parse(code).body:
             flag, result = self.visit(stmt)
             if flag == 'continue' or flag == 'break' or flag == 'return':
-                raise SyntaxError('unexpected ' + flag)
+                raise SyntaxError('unexpected {} at line {}'.format(flag, stmt.lineno))
     def visit_With(self, node):
         if len(node.items) != 1:
             raise SyntaxError('invalid with statement')
@@ -481,7 +481,7 @@ class Compiler(Program):
             for stmt in node.body:
                 flag, result = program.visit(stmt)
                 if flag == 'break' or flag == 'continue':
-                    raise SyntaxError('unexpected ' + flag)
+                    raise SyntaxError('unexpected {} at line {}'.format(flag, stmt.lineno))
                 if flag == 'return':
                     break
             else:
