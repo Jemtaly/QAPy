@@ -1,32 +1,36 @@
 import ast
-import circuit
 import pymcl
+from circuit import Circuit, Var
 ρ = pymcl.r
 # check the type of a value
 def isgal(x):
-    return isinstance(x, (int, circuit.Var))
+    return isinstance(x, (int, Var))
 def isbin(x):
-    return isinstance(x, list) and all(isinstance(b, (int, circuit.Var)) for b in x)
+    return isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x)
 # assert the type of a value
-def asint(x):
-    if isinstance(x, int):
-        return (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2
-    raise TypeError('expected a constant value')
 def asgal(x):
-    if isinstance(x, (int, circuit.Var)):
+    if isinstance(x, (int, Var)):
         return x
     raise TypeError('expected a value')
 def asbin(x):
-    if isinstance(x, list) and all(isinstance(b, (int, circuit.Var)) for b in x):
+    if isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x):
         return x
     raise TypeError('expected a binary')
 def asstr(x):
     if isinstance(x, str):
         return x
     raise TypeError('expected a string')
+def ascon(x):
+    if isinstance(x, int):
+        return x
+    raise TypeError('expected a constant value')
+def asint(x):
+    if isinstance(x, int):
+        return (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2
+    raise TypeError('expected a constant value')
 # get the shape of a value (binary list will be treated as a list of integers)
 def shape(x):
-    if isinstance(x, (int, circuit.Var)):
+    if isinstance(x, (int, Var)):
         return (), None
     if isinstance(x, tuple):
         return (), tuple(shape(v) for v in x)
@@ -43,12 +47,11 @@ def shape(x):
             return (frozenset(x), *outer), inner
         raise TypeError('inconsistent shape of dict values')
     raise TypeError('unsupported data type')
-class Program(ast.NodeVisitor, circuit.Circuit):
+class Program(Circuit):
     # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
     # arithmetic circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
-        ast.NodeVisitor.__init__(self)
-        circuit.Circuit.__init__(self)
+        Circuit.__init__(self)
         self.stack = [{
             'range': lambda *args: range(*map(asint, args)),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
@@ -73,6 +76,15 @@ class Program(ast.NodeVisitor, circuit.Circuit):
             'assert_binge': lambda x, y, msg: self.ASSERT_BINGE(asbin(x), asbin(y), msg = asstr(msg)),
             'assert_bingt': lambda x, y, msg: self.ASSERT_BINGT(asbin(x), asbin(y), msg = asstr(msg)),
         }] # the stack is used to store the local variables
+    def visit(self, node):
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        try:
+            return visitor(node)
+        except Exception as e:
+            raise Exception('error occurred while visiting {} at line {}'.format(node.__class__.__name__, node.lineno)) from e
+    def generic_visit(self, node):
+        raise SyntaxError('unsupported syntax')
     def visit_Continue(self, node):
         return 'continue', None
     def visit_Break(self, node):
@@ -164,7 +176,7 @@ class Program(ast.NodeVisitor, circuit.Circuit):
             self.ASSERT_NEZ(asgal(test), msg = asstr(self.visit(node.msg)))
         return None, None
     def visit_If(self, node):
-        if asint(self.visit(node.test)):
+        if ascon(self.visit(node.test)):
             for stmt in node.body:
                 flag, result = self.visit(stmt)
                 if flag == 'continue' or flag == 'break' or flag == 'return':
@@ -176,7 +188,7 @@ class Program(ast.NodeVisitor, circuit.Circuit):
                     return flag, result
         return None, None
     def visit_While(self, node):
-        while asint(self.visit(node.test)):
+        while ascon(self.visit(node.test)):
             for stmt in node.body:
                 flag, result = self.visit(stmt)
                 if flag == 'continue' or flag == 'break' or flag == 'return':
@@ -248,7 +260,7 @@ class Program(ast.NodeVisitor, circuit.Circuit):
             self.stack = self.stack + [{}]
             for value in iter:
                 self.stack[-1][generator.target.id] = value
-                if all(asint(self.visit(test)) for test in generator.ifs):
+                if all(ascon(self.visit(test)) for test in generator.ifs):
                     yield from visit(generators)
             self.stack = call_stack
         res = list(visit(node.generators))
@@ -258,7 +270,7 @@ class Program(ast.NodeVisitor, circuit.Circuit):
     def visit_DictComp(self, node):
         def visit(generators):
             if len(generators) == 0:
-                yield asint(self.visit(node.key)), self.visit(node.value)
+                yield ascon(self.visit(node.key)), self.visit(node.value)
                 return
             generator, *generators = generators
             if not isinstance(generator.target, ast.Name):
@@ -276,7 +288,7 @@ class Program(ast.NodeVisitor, circuit.Circuit):
             self.stack = self.stack + [{}]
             for value in iter:
                 self.stack[-1][generator.target.id] = value
-                if all(asint(self.visit(test)) for test in generator.ifs):
+                if all(ascon(self.visit(test)) for test in generator.ifs):
                     yield from visit(generators)
             self.stack = call_stack
         res = dict(visit(node.generators))
@@ -289,7 +301,7 @@ class Program(ast.NodeVisitor, circuit.Circuit):
             raise TypeError('inconsistent shape of list elements')
         return res
     def visit_Dict(self, node):
-        res = dict((asint(self.visit(key)), self.visit(value)) for key, value in zip(node.keys, node.values))
+        res = dict((ascon(self.visit(key)), self.visit(value)) for key, value in zip(node.keys, node.values))
         if len({shape(x) for x in res.values()}) != 1:
             raise TypeError('inconsistent shape of dict values')
         return res
@@ -409,8 +421,6 @@ class Program(ast.NodeVisitor, circuit.Circuit):
         if shape(left) != shape(right):
             raise TypeError('inconsistent shape of left and right values in conditional expression')
         return self.IF(asgal(self.visit(node.test)), left, right)
-    def generic_visit(self, node):
-        raise SyntaxError('unsupported syntax')
 class Compiler(Program):
     def __init__(self):
         Program.__init__(self)
@@ -420,9 +430,7 @@ class Compiler(Program):
             'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
         })
     def compile(self, code):
-        self.visit(ast.parse(code))
-    def visit_Module(self, node):
-        for stmt in node.body:
+        for stmt in ast.parse(code).body:
             flag, result = self.visit(stmt)
             if flag == 'continue' or flag == 'break' or flag == 'return':
                 raise SyntaxError('unexpected ' + flag)
@@ -465,7 +473,7 @@ class Compiler(Program):
             def eval(value):
                 if isinstance(value, int):
                     return value
-                if isinstance(value, circuit.Var):
+                if isinstance(value, Var):
                     return getw(value)
                 if isinstance(value, tuple):
                     return tuple(eval(v) for v in value)
