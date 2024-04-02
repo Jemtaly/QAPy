@@ -16,6 +16,10 @@ def asbin(x):
     if isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x):
         return x
     raise TypeError('expected a binary')
+def aslst(x):
+    if isinstance(x, list) and all(isinstance(v, (int, Var)) for v in x):
+        return x
+    raise TypeError('expected a list')
 def asstr(x):
     if isinstance(x, str):
         return x
@@ -66,7 +70,7 @@ class Program(Circuit):
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
             'binmul': lambda x, y, c = [], d = []: self.BINMUL(asbin(x), asbin(y), asbin(c), asbin(d)),
             'divmod': lambda x, y: self.BINDIVMOD(asbin(x), asbin(y)),
-            'assert_is_perm': lambda l, r, msg: self.ASSERT_IS_PERM(list(map(asgal, l)), list(map(asgal, r)), msg = asstr(msg)),
+            'assert_is_perm': lambda l, r, msg: self.ASSERT_IS_PERM(aslst(l), aslst(r), msg = asstr(msg)),
             'assert_is_bool': lambda x, msg: self.ASSERT_IS_BOOL(asgal(x), msg = asstr(msg)),
             'assert_eqz': lambda x, msg: self.ASSERT_EQZ(asgal(x), msg = asstr(msg)),
             'assert_nez': lambda x, msg: self.ASSERT_NEZ(asgal(x), msg = asstr(msg)),
