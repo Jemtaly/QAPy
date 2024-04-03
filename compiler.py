@@ -373,9 +373,9 @@ class Program(Circuit, ast.NodeVisitor):
         if isinstance(node.op, ast.Pow):
             return self.POW(left, asbin(right)) if isbin(left) else self.BINPOW(asgal(left), asbin(right))
         if isinstance(node.op, ast.FloorDiv):
-            return self.BINDIVMOD(asbin(left), asbin(right))[0]
+            return self.BINDIVMOD(left, right)[0] if isbin(left) and isbin(right) else (asint(left) // asint(right)) % ρ
         if isinstance(node.op, ast.Mod):
-            return self.BINDIVMOD(asbin(left), asbin(right))[1]
+            return self.BINDIVMOD(left, right)[1] if isbin(left) and isbin(right) else (asint(left) % asint(right)) % ρ
         if isinstance(node.op, ast.BitAnd):
             return self.BITAND(asbin(left), asbin(right))
         if isinstance(node.op, ast.BitOr):
