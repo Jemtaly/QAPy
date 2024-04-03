@@ -70,10 +70,10 @@ def xxrep(arg, n):
     if isinstance(arg, list):
         return arg * max(assgn(n), 1)
     raise TypeError('only lists are supported for repetition')
-def xxslc(arg, a, b):
+def xxslc(arg, i, j):
     if isinstance(arg, list):
-        i = assgn(a) % len(arg)
-        j = assgn(b) % len(arg)
+        i = assgn(i) % len(arg)
+        j = assgn(j) % len(arg)
         return arg[i:j] if i < j else arg[i:] + arg[:j]
     raise TypeError('only lists are supported for slicing')
 def xxrev(arg):
@@ -99,7 +99,7 @@ class Program(Circuit, ast.NodeVisitor):
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0x00] * max(assgn(n), 1))[:max(n, 1)] if isbin(x) else self.BINARY(asgal(x), max(assgn(n), 1)),
+            'bin': lambda x, n: (x + [0x00] * max(assgn(n), 1))[:max(assgn(n), 1)] if isbin(x) else self.BINARY(asgal(x), max(assgn(n), 1)),
             'binadd': lambda x, y, c = 0x00: self.BINADD(asbin(x), asbin(y), asgal(c)),
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
             'binmul': lambda x, y, c = [], d = []: self.BINMUL(asbin(x), asbin(y), asbin(c), asbin(d)),
@@ -485,7 +485,7 @@ class Compiler(Program):
                 if not isinstance(elt, ast.Subscript):
                     raise SyntaxError('invalid output target')
                 slice = self.visit(elt.slice)
-                slices.append(slice)
+                slices.append(max(assgn(slice), 1))
                 length *= slice
                 elt = elt.value
             outputs.append((slices, length, elt.id))
