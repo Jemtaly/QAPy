@@ -16,10 +16,10 @@ def asbin(x):
     if isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x):
         return x
     raise TypeError('expected a binary')
-def aslst(x):
+def aslof(x):
     if isinstance(x, list) and all(isinstance(v, (int, Var)) for v in x):
         return x
-    raise TypeError('expected a list')
+    raise TypeError('expected a list of field elements')
 def asstr(x):
     if isinstance(x, str):
         return x
@@ -53,33 +53,45 @@ def shape(x):
 def xxzip(fst, *args):
     if isinstance(fst, list):
         if not all(range(len(fst)) == range(len(arg)) for arg in args):
-            raise TypeError('inconsistent shape of arguments')
+            raise TypeError('inconsistent shape of zipped arguments')
         return [(fst[key], *(arg[key] for arg in args)) for key in range(len(fst))]
     if isinstance(fst, dict):
         if not all(frozenset(fst) == frozenset(arg) for arg in args):
-            raise TypeError('inconsistent shape of arguments')
+            raise TypeError('inconsistent shape of zipped arguments')
         return {key: (fst[key], *(arg[key] for arg in args)) for key in frozenset(fst)}
-    raise TypeError('unsupported data type')
+    raise TypeError('only lists and dicts are supported for zipping')
 def xxcon(fst, *args):
-    (fk, *fo), fi = shape(fst)
-    if isinstance(fst, list) and all(isinstance(arg, list) for arg in args) and all(ao == fo and ai == fi for (ak, *ao), ai in map(shape, args)):
-        return sum(args, fst)
-    return fst + list(args)
+    if isinstance(fst, list):
+        (fk, *fo), fi = shape(fst)
+        if all(isinstance(arg, list) for arg in args) and all(ao == fo and ai == fi for (ak, *ao), ai in map(shape, args)):
+            return sum(args, fst)
+    raise TypeError('only lists are supported for concatenation')
 def xxrep(arg, n):
-    if not isinstance(arg, list):
-        raise TypeError('repetition is only supported for lists')
-    return arg * max(assgn(n), 1)
+    if isinstance(arg, list):
+        return arg * max(assgn(n), 1)
+    raise TypeError('only lists are supported for repetition')
+def xxslc(arg, a, b):
+    if isinstance(arg, list):
+        i = assgn(a) % len(arg)
+        j = assgn(b) % len(arg)
+        return arg[i:j] if i < j else arg[i:] + arg[:j]
+    raise TypeError('only lists are supported for slicing')
+def xxrev(arg):
+    if isinstance(arg, list):
+        return arg[::-1]
+    raise TypeError('only lists are supported for reversing')
 def xxlen(arg):
-    if isinstance(arg, list | dict):
+    if isinstance(arg, list):
         return len(arg)
-    raise TypeError('unsupported data type')
+    raise TypeError('only lists are supported for getting length')
 class Program(Circuit, ast.NodeVisitor):
     # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
     # arithmetic circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
         Circuit.__init__(self)
         self.stack = [{
-            'range': lambda *args: range(*map(assgn, args)), 'zip': xxzip, 'len': xxlen, 'concat': xxcon, 'repeat': xxrep,
+            'zip': xxzip, 'concat': xxcon, 'repeat': xxrep, 'len': xxlen, 'slice': xxslc, 'reverse': xxrev,
+            'range': lambda *args: range(*map(assgn, args)),
             'fmt': lambda s, *args: asstr(s).format(*map(assgn, args)),
             'log': lambda s: print(asstr(s)),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
@@ -92,7 +104,7 @@ class Program(Circuit, ast.NodeVisitor):
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
             'binmul': lambda x, y, c = [], d = []: self.BINMUL(asbin(x), asbin(y), asbin(c), asbin(d)),
             'divmod': lambda x, y: self.BINDIVMOD(asbin(x), asbin(y)),
-            'assert_is_perm': lambda l, r, msg: self.ASSERT_IS_PERM(aslst(l), aslst(r), msg = asstr(msg)),
+            'assert_is_perm': lambda l, r, msg: self.ASSERT_IS_PERM(aslof(l), aslof(r), msg = asstr(msg)),
             'assert_is_bool': lambda x, msg: self.ASSERT_IS_BOOL(asgal(x), msg = asstr(msg)),
             'assert_eqz': lambda x, msg: self.ASSERT_EQZ(asgal(x), msg = asstr(msg)),
             'assert_nez': lambda x, msg: self.ASSERT_NEZ(asgal(x), msg = asstr(msg)),
