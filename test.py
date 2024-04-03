@@ -74,7 +74,7 @@ if __name__ == '__main__':
             "    V[5] = F + V[5]\n"
             "    V[6] = G + V[6]\n"
             "    V[7] = H + V[7]\n"
-            "    return V + 1\n"
+            "    return V\n"
             "W = [b32(secret(fmt('W[{}]', i))) for i in range(16)]\n"
             "V = compress(V, W)\n"
             "for i in range(8):\n"

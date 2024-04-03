@@ -49,13 +49,30 @@ def shape(x):
         outer, inner = shapes.pop()
         return (frozenset(x), *outer), inner
     raise TypeError('unsupported data type')
+# built-in functions
+def BIlen(x):
+    if isinstance(x, list):
+        return len(x)
+    if isinstance(x, dict):
+        return len(x)
+    raise TypeError('unsupported data type')
+def BIzip(arg0, *args):
+    if isinstance(arg0, list):
+        if not all(range(len(arg0)) == range(len(argi)) for argi in args):
+            raise TypeError('inconsistent shape of arguments')
+        return [(arg0[key], *(argi[key] for argi in args)) for key in range(len(arg0))]
+    if isinstance(arg0, dict):
+        if not all(frozenset(arg0) == frozenset(argi) for argi in args):
+            raise TypeError('inconsistent shape of arguments')
+        return {key: (arg0[key], *(argi[key] for argi in args)) for key in frozenset(arg0)}
+    raise TypeError('unsupported data type')
 class Program(Circuit, ast.NodeVisitor):
     # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
     # arithmetic circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
         Circuit.__init__(self)
         self.stack = [{
-            'range': lambda *args: range(*map(assgn, args)),
+            'range': lambda *args: range(*map(assgn, args)), 'zip': BIzip, 'len': BIlen,
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
             'b8':  lambda x: (x + [0x00] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
@@ -124,7 +141,7 @@ class Program(Circuit, ast.NodeVisitor):
             return result
         self.stack[-1][node.name] = func
         return None, None
-    def visit_Lambda(self, node: ast.Lambda):
+    def visit_Lambda(self, node):
         func_stack = self.stack
         def func(*args):
             if len(args) != len(node.args.args):
@@ -137,37 +154,37 @@ class Program(Circuit, ast.NodeVisitor):
                 self.stack = call_stack
             return result
         return func
+    def assign(self, target, value):
+        if isinstance(target, ast.Tuple):
+            if not isinstance(value, tuple) or len(target.elts) != len(value):
+                raise TypeError('mismatched number of targets and values in assignment')
+            for target, value in zip(target.elts, value):
+                self.assign(target, value)
+            return
+        if isinstance(target, ast.Name):
+            self.stack[-1][target.id] = value
+            return
+        slices = []
+        while not isinstance(target, ast.Name):
+            if not isinstance(target, ast.Subscript):
+                raise SyntaxError('invalid assignment target')
+            slices.append(self.visit(target.slice))
+            target = target.value
+        dest = self.visit(target)
+        outer, inner = shape(dest)
+        enums = []
+        for slice in reversed(slices):
+            if len(outer) == 0:
+                raise TypeError('cannot index a scalar')
+            keys, *outer = outer
+            enums.append(self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
+        if (tuple(outer), inner) != shape(value):
+            raise TypeError('inconsistent shape of target and value in indexed assignment')
+        self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
     def visit_Assign(self, node):
-        def assign(target, value):
-            if isinstance(target, ast.Tuple):
-                if not isinstance(value, tuple) or len(target.elts) != len(value):
-                    raise TypeError('mismatched number of targets and values in assignment')
-                for target, value in zip(target.elts, value):
-                    assign(target, value)
-                return
-            if isinstance(target, ast.Name):
-                self.stack[-1][target.id] = value
-                return
-            slices = []
-            while not isinstance(target, ast.Name):
-                if not isinstance(target, ast.Subscript):
-                    raise SyntaxError('invalid assignment target')
-                slices.append(self.visit(target.slice))
-                target = target.value
-            dest = self.visit(target)
-            outer, inner = shape(dest)
-            enums = []
-            for slice in reversed(slices):
-                if len(outer) == 0:
-                    raise TypeError('cannot index a scalar')
-                keys, *outer = outer
-                enums.append(self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
-            if (tuple(outer), inner) != shape(value):
-                raise TypeError('inconsistent shape of target and value in indexed assignment')
-            self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
         value = self.visit(node.value)
         for target in node.targets:
-            assign(target, value)
+            self.assign(target, value)
         return None, None
     def visit_Delete(self, node):
         for target in node.targets:
@@ -208,29 +225,17 @@ class Program(Circuit, ast.NodeVisitor):
                     return flag, result
         return None, None
     def iterate_over(self, node):
-        if isinstance(node.target, ast.Name):
-            kid = node.target.id
-            vid = None
-        elif isinstance(node.target, ast.Tuple) and len(node.target.elts) == 2 and all(isinstance(elt, ast.Name) for elt in node.target.elts):
-            kid = node.target.elts[0].id
-            vid = node.target.elts[1].id
-        else:
-            raise SyntaxError('iteration target must be a variable or a pair of variables')
         iter = self.visit(node.iter)
-        if isinstance(iter, range):
-            if vid is not None:
-                raise TypeError('range object cannot have two targets')
-            keys = iter
-        elif isinstance(iter, list):
-            keys = range(len(iter))
+        if isinstance(iter, range | frozenset):
+            items = iter
         elif isinstance(iter, dict):
-            keys = iter.keys()
+            items = iter.items()
+        elif isinstance(iter, list):
+            items = enumerate(iter)
         else:
-            raise TypeError('iteration can only be performed on range, list or dict')
-        for key in keys:
-            self.stack[-1][kid] = key
-            if vid is not None:
-                self.stack[-1][vid] = iter[key]
+            raise TypeError('unsupported iteration object')
+        for item in items:
+            self.assign(node.target, item)
             yield
     def visit_For(self, node):
         for _ in self.iterate_over(node):
@@ -366,6 +371,17 @@ class Program(Circuit, ast.NodeVisitor):
             return self.SHL(asbin(left), assgn(right))
         if isinstance(node.op, ast.RShift):
             return self.SHR(asbin(left), assgn(right))
+        if isinstance(node.op, ast.MatMult):
+            if isinstance(left, list) and isinstance(right, list):
+                (lkeys, *louter), linner = shape(left)
+                (rkeys, *router), rinner = shape(right)
+                if louter != router or linner != rinner:
+                    raise TypeError('inconsistent shape of two lists in concatenation')
+                return left + right
+            elif isinstance(left, list) and isinstance(right, int) and right >= 1:
+                return left * right
+            elif isinstance(left, int) and left >= 1 and isinstance(right, list):
+                return right * left
         raise SyntaxError('unsupported binary operation')
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)

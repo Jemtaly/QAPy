@@ -167,7 +167,7 @@ class Circuit:
         if bBit == 0x00:
             return fItm
         if isinstance(tItm, dict):
-            return dict((zInt, self.IF(bBit, tItm[zInt], fItm[zInt])) for zInt in tItm.keys())
+            return dict((zInt, self.IF(bBit, tItm[zInt], fItm[zInt])) for zInt in frozenset(tItm))
         if isinstance(tItm, list):
             return list(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
         if isinstance(tItm, tuple):
