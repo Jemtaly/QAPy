@@ -24,14 +24,10 @@ def asstr(x):
     if isinstance(x, str):
         return x
     raise TypeError('expected a string')
-def asint(x):
-    if isinstance(x, int):
+def asint(x, sgn = True, pos = False):
+    if isinstance(x, int) and (not sgn or (x := (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2) > 0 or not pos):
         return x
-    raise TypeError('expected a constant value')
-def assgn(x):
-    if isinstance(x, int):
-        return (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2
-    raise TypeError('expected a constant value')
+    raise TypeError('expected a {} constant value'.format('positive' if pos else 'signed' if sgn else 'general'))
 # get the shape of a value (binary list will be treated as a list of integers)
 def shape(x):
     if isinstance(x, (int, Var)):
@@ -68,12 +64,12 @@ def xxcon(fst, *args):
     raise TypeError('only lists are supported for concatenation')
 def xxrep(arg, n):
     if isinstance(arg, list):
-        return arg * max(assgn(n), 1)
+        return arg * asint(n, pos = True)
     raise TypeError('only lists are supported for repetition')
 def xxslc(arg, i, j):
     if isinstance(arg, list):
-        i = assgn(i) % len(arg)
-        j = assgn(j) % len(arg)
+        i = asint(i) % len(arg)
+        j = asint(j) % len(arg)
         return arg[i:j] if i < j else arg[i:] + arg[:j]
     raise TypeError('only lists are supported for slicing')
 def xxrev(arg):
@@ -91,15 +87,15 @@ class Program(Circuit, ast.NodeVisitor):
         Circuit.__init__(self)
         self.stack = [{
             'zip': xxzip, 'concat': xxcon, 'repeat': xxrep, 'len': xxlen, 'slice': xxslc, 'reverse': xxrev,
-            'range': lambda *args: range(*map(assgn, args)),
-            'fmt': lambda s, *args: asstr(s).format(*map(assgn, args)),
+            'range': lambda *args: range(*map(asint, args)),
+            'fmt': lambda s, *args: asstr(s).format(*map(asint, args)),
             'log': lambda s: print(asstr(s)),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
             'b8':  lambda x: (x + [0x00] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0x00] * max(assgn(n), 1))[:max(assgn(n), 1)] if isbin(x) else self.BINARY(asgal(x), max(assgn(n), 1)),
+            'bin': lambda x, n: (x + [0x00] * asint(n, pos = True))[:asint(n)] if isbin(x) else self.BINARY(asgal(x), asint(n, pos = True)),
             'binadd': lambda x, y, c = 0x00: self.BINADD(asbin(x), asbin(y), asgal(c)),
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
             'binmul': lambda x, y, c = [], d = []: self.BINMUL(asbin(x), asbin(y), asbin(c), asbin(d)),
@@ -312,7 +308,7 @@ class Program(Circuit, ast.NodeVisitor):
     def visit_DictComp(self, node):
         def visit(generators):
             if len(generators) == 0:
-                yield asint(self.visit(node.key)), self.visit(node.value)
+                yield asint(self.visit(node.key), sgn = False), self.visit(node.value)
                 return
             generator, *generators = generators
             call_stack = self.stack
@@ -333,7 +329,7 @@ class Program(Circuit, ast.NodeVisitor):
             raise TypeError('inconsistent shape of list elements')
         return res
     def visit_Dict(self, node):
-        res = dict((asint(self.visit(key)), self.visit(value)) for key, value in zip(node.keys, node.values))
+        res = dict((asint(self.visit(key), sgn = False), self.visit(value)) for key, value in zip(node.keys, node.values))
         if len({shape(x) for x in res.values()}) != 1:
             raise TypeError('inconsistent shape of dict values')
         return res
@@ -387,9 +383,9 @@ class Program(Circuit, ast.NodeVisitor):
         if isinstance(node.op, ast.BitXor):
             return self.BITXOR(asbin(left), asbin(right))
         if isinstance(node.op, ast.LShift):
-            return self.SHL(asbin(left), assgn(right))
+            return self.SHL(asbin(left), asint(right))
         if isinstance(node.op, ast.RShift):
-            return self.SHR(asbin(left), assgn(right))
+            return self.SHR(asbin(left), asint(right))
         raise SyntaxError('unsupported binary operation')
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)
@@ -423,13 +419,13 @@ class Program(Circuit, ast.NodeVisitor):
             elif isinstance(op, ast.NotEq):
                 result = self.AND(result, self.NEZ(self.SUB(self.GALOIS(left) if isbin(left) else asgal(left), self.GALOIS(right) if isbin(right) else asgal(right))))
             elif isinstance(op, ast.Lt):
-                result = self.AND(result, self.BINLT(left, right) if isbin(left) and isbin(right) else assgn(left) < assgn(right))
+                result = self.AND(result, self.BINLT(left, right) if isbin(left) and isbin(right) else asint(left) < asint(right))
             elif isinstance(op, ast.LtE):
-                result = self.AND(result, self.BINLE(left, right) if isbin(left) and isbin(right) else assgn(left) <= assgn(right))
+                result = self.AND(result, self.BINLE(left, right) if isbin(left) and isbin(right) else asint(left) <= asint(right))
             elif isinstance(op, ast.Gt):
-                result = self.AND(result, self.BINGT(left, right) if isbin(left) and isbin(right) else assgn(left) > assgn(right))
+                result = self.AND(result, self.BINGT(left, right) if isbin(left) and isbin(right) else asint(left) > asint(right))
             elif isinstance(op, ast.GtE):
-                result = self.AND(result, self.BINGE(left, right) if isbin(left) and isbin(right) else assgn(left) >= assgn(right))
+                result = self.AND(result, self.BINGE(left, right) if isbin(left) and isbin(right) else asint(left) >= asint(right))
             else:
                 raise SyntaxError('unsupported comparison')
             left = right
@@ -485,7 +481,7 @@ class Compiler(Program):
                 if not isinstance(elt, ast.Subscript):
                     raise SyntaxError('invalid output target')
                 slice = self.visit(elt.slice)
-                slices.append(max(assgn(slice), 1))
+                slices.append(asint(slice, pos = True))
                 length *= slice
                 elt = elt.value
             outputs.append((slices, length, elt.id))
