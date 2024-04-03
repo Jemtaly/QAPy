@@ -40,18 +40,16 @@ def shape(x):
         return (), tuple(shape(v) for v in x)
     if isinstance(x, list):
         shapes = {shape(v) for v in x}
-        if len(shapes) == 1:
-            outer, inner = shapes.pop()
-            return (range(len(x)), *outer), inner
-        raise TypeError('inconsistent shape of list elements')
+        assert len(shapes) == 1
+        outer, inner = shapes.pop()
+        return (range(len(x)), *outer), inner
     if isinstance(x, dict):
         shapes = {shape(v) for v in x.values()}
-        if len(shapes) == 1:
-            outer, inner = shapes.pop()
-            return (frozenset(x), *outer), inner
-        raise TypeError('inconsistent shape of dict values')
+        assert len(shapes) == 1
+        outer, inner = shapes.pop()
+        return (frozenset(x), *outer), inner
     raise TypeError('unsupported data type')
-class Program(Circuit):
+class Program(Circuit, ast.NodeVisitor):
     # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
     # arithmetic circuits. The Python code should be written in a restricted subset of Python.
     def __init__(self):
@@ -86,7 +84,12 @@ class Program(Circuit):
         try:
             return visitor(node)
         except Exception as e:
-            raise Exception('error occurred while visiting {} at line {}'.format(node.__class__.__name__, node.lineno)) from e
+            if hasattr(node, 'lineno') and hasattr(node, 'col_offset'):
+                e.add_note('while visiting {} (line {}, column {})'.format(node.__class__.__name__, node.lineno, node.col_offset))
+            else:
+                e.add_note('while visiting {}'.format(node.__class__.__name__))
+            e.with_traceback(None)
+            raise
     def generic_visit(self, node):
         raise SyntaxError('unsupported syntax')
     def visit_Continue(self, node):
@@ -101,37 +104,37 @@ class Program(Circuit):
         self.visit(node.value)
         return None, None
     def visit_FunctionDef(self, node):
-        def_stack = self.stack
+        func_stack = self.stack
         def func(*args):
             if len(args) != len(node.args.args):
                 raise TypeError('mismatched number of arguments')
             call_stack = self.stack
-            self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args):
-                self.stack[-1][target.arg] = arg
-            for stmt in node.body:
-                flag, result = self.visit(stmt)
-                if flag == 'break' or flag == 'continue':
-                    raise SyntaxError('unexpected {} at line {}'.format(flag, stmt.lineno))
-                if flag == 'return':
-                    break
-            else:
-                result = None
-            self.stack = call_stack
+            try:
+                self.stack = func_stack + [{target.arg: arg for target, arg in zip(node.args.args, args)}]
+                for stmt in node.body:
+                    flag, result = self.visit(stmt)
+                    if flag == 'break' or flag == 'continue':
+                        raise SyntaxError('unexpected {}'.format(flag))
+                    if flag == 'return':
+                        break
+                else:
+                    result = None
+            finally:
+                self.stack = call_stack
             return result
         self.stack[-1][node.name] = func
         return None, None
-    def visit_Lambda(self, node):
-        def_stack = self.stack
+    def visit_Lambda(self, node: ast.Lambda):
+        func_stack = self.stack
         def func(*args):
             if len(args) != len(node.args.args):
                 raise TypeError('mismatched number of arguments')
             call_stack = self.stack
-            self.stack = def_stack + [{}]
-            for target, arg in zip(node.args.args, args):
-                self.stack[-1][target.arg] = arg
-            result = self.visit(node.body)
-            self.stack = call_stack
+            try:
+                self.stack = func_stack + [{target.arg: arg for target, arg in zip(node.args.args, args)}]
+                result = self.visit(node.body)
+            finally:
+                self.stack = call_stack
             return result
         return func
     def visit_Assign(self, node):
@@ -204,20 +207,33 @@ class Program(Circuit):
                 if flag == 'continue' or flag == 'break' or flag == 'return':
                     return flag, result
         return None, None
-    def visit_For(self, node):
-        if not isinstance(node.target, ast.Name):
-            raise SyntaxError('invalid iteration target')
+    def iterate_over(self, node):
+        if isinstance(node.target, ast.Name):
+            kid = node.target.id
+            vid = None
+        elif isinstance(node.target, ast.Tuple) and len(node.target.elts) == 2 and all(isinstance(elt, ast.Name) for elt in node.target.elts):
+            kid = node.target.elts[0].id
+            vid = node.target.elts[1].id
+        else:
+            raise SyntaxError('iteration target must be a variable or a pair of variables')
         iter = self.visit(node.iter)
         if isinstance(iter, range):
-            iter = iter
+            if vid is not None:
+                raise TypeError('range object cannot have two targets')
+            keys = iter
         elif isinstance(iter, list):
-            iter = range(len(iter))
+            keys = range(len(iter))
         elif isinstance(iter, dict):
-            iter = iter.keys()
+            keys = iter.keys()
         else:
             raise TypeError('iteration can only be performed on range, list or dict')
-        for value in iter:
-            self.stack[-1][node.target.id] = value
+        for key in keys:
+            self.stack[-1][kid] = key
+            if vid is not None:
+                self.stack[-1][vid] = iter[key]
+            yield
+    def visit_For(self, node):
+        for _ in self.iterate_over(node):
             for stmt in node.body:
                 flag, result = self.visit(stmt)
                 if flag == 'continue' or flag == 'break' or flag == 'return':
@@ -242,24 +258,14 @@ class Program(Circuit):
                 yield self.visit(node.elt)
                 return
             generator, *generators = generators
-            if not isinstance(generator.target, ast.Name):
-                raise SyntaxError('invalid iteration target')
-            iter = self.visit(generator.iter)
-            if isinstance(iter, range):
-                iter = iter
-            elif isinstance(iter, list):
-                iter = range(len(iter))
-            elif isinstance(iter, dict):
-                iter = iter.keys()
-            else:
-                raise TypeError('iteration can only be performed on range, list or dict')
             call_stack = self.stack
-            self.stack = self.stack + [{}]
-            for value in iter:
-                self.stack[-1][generator.target.id] = value
-                if all(asint(self.visit(test)) for test in generator.ifs):
-                    yield from visit(generators)
-            self.stack = call_stack
+            try:
+                self.stack = self.stack + [{}]
+                for _ in self.iterate_over(generator):
+                    if all(asint(self.visit(test)) for test in generator.ifs):
+                        yield from visit(generators)
+            finally:
+                self.stack = call_stack
         res = list(visit(node.generators))
         if len({shape(x) for x in res}) != 1:
             raise TypeError('inconsistent shape of list elements')
@@ -270,24 +276,14 @@ class Program(Circuit):
                 yield asint(self.visit(node.key)), self.visit(node.value)
                 return
             generator, *generators = generators
-            if not isinstance(generator.target, ast.Name):
-                raise SyntaxError('invalid iteration target')
-            iter = self.visit(generator.iter)
-            if isinstance(iter, range):
-                iter = iter
-            elif isinstance(iter, list):
-                iter = range(len(iter))
-            elif isinstance(iter, dict):
-                iter = iter.keys()
-            else:
-                raise TypeError('iteration can only be performed on range, list or dict')
             call_stack = self.stack
-            self.stack = self.stack + [{}]
-            for value in iter:
-                self.stack[-1][generator.target.id] = value
-                if all(asint(self.visit(test)) for test in generator.ifs):
-                    yield from visit(generators)
-            self.stack = call_stack
+            try:
+                self.stack = self.stack + [{}]
+                for _ in self.iterate_over(generator):
+                    if all(asint(self.visit(test)) for test in generator.ifs):
+                        yield from visit(generators)
+            finally:
+                self.stack = call_stack
         res = dict(visit(node.generators))
         if len({shape(x) for x in res.values()}) != 1:
             raise TypeError('inconsistent shape of dict values')
@@ -326,7 +322,9 @@ class Program(Circuit):
         keys, *outer = outer
         return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
     def visit_Call(self, node):
-        return self.visit(node.func)(*map(self.visit, node.args))
+        func = self.visit(node.func)
+        args = [self.visit(arg) for arg in node.args]
+        return func(*args)
     def visit_Set(self, node):
         # this syntax is used for summing binary values
         # use * to represent negation (except for the first element)
@@ -427,10 +425,12 @@ class Compiler(Program):
             'reveal': lambda s, x: self.REVEAL(asstr(s), self.GALOIS(x) if isbin(x) else asgal(x)),
         })
     def compile(self, code):
-        for stmt in ast.parse(code).body:
+        self.visit(ast.parse(code))
+    def visit_Module(self, node):
+        for stmt in node.body:
             flag, result = self.visit(stmt)
             if flag == 'continue' or flag == 'break' or flag == 'return':
-                raise SyntaxError('unexpected {} at line {}'.format(flag, stmt.lineno))
+                raise SyntaxError('unexpected {}'.format(flag))
     def visit_With(self, node):
         if len(node.items) != 1:
             raise SyntaxError('invalid with statement')
@@ -485,7 +485,7 @@ class Compiler(Program):
             for stmt in node.body:
                 flag, result = program.visit(stmt)
                 if flag == 'break' or flag == 'continue':
-                    raise SyntaxError('unexpected {} at line {}'.format(flag, stmt.lineno))
+                    raise SyntaxError('unexpected {}'.format(flag))
                 if flag == 'return':
                     break
             else:
