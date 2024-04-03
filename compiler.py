@@ -11,11 +11,11 @@ def isbin(x):
 def asgal(x):
     if isinstance(x, (int, Var)):
         return x
-    raise TypeError('expected a value')
+    raise TypeError('expected a field element')
 def asbin(x):
     if isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x):
         return x
-    raise TypeError('expected a binary')
+    raise TypeError('expected a binary value')
 def aslof(x):
     if isinstance(x, list) and all(isinstance(v, (int, Var)) for v in x):
         return x
@@ -27,8 +27,8 @@ def asstr(x):
 def asint(x, sgn = True, pos = False):
     if isinstance(x, int) and (not sgn or (x := (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2) > 0 or not pos):
         return x
-    raise TypeError('expected a {} constant value'.format('positive' if pos else 'signed' if sgn else 'general'))
-# get the shape of a value (binary list will be treated as a list of integers)
+    raise TypeError('expected a {} constant field element'.format('positive' if pos else 'signed' if sgn else 'unsigned'))
+# get the shape of a value (binary value will be treated as a list of field elements)
 def shape(x):
     if isinstance(x, (int, Var)):
         return (), None
@@ -95,7 +95,7 @@ class Program(Circuit, ast.NodeVisitor):
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0x00] * asint(n, pos = True))[:asint(n)] if isbin(x) else self.BINARY(asgal(x), asint(n, pos = True)),
+            'bin': lambda x, n: (x + [0x00] * asint(n, pos = True))[:asint(n, pos = True)] if isbin(x) else self.BINARY(asgal(x), asint(n, pos = True)),
             'binadd': lambda x, y, c = 0x00: self.BINADD(asbin(x), asbin(y), asgal(c)),
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
             'binmul': lambda x, y, c = [], d = []: self.BINMUL(asbin(x), asbin(y), asbin(c), asbin(d)),
