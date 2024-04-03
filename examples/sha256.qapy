@@ -26,10 +26,8 @@ V = [
     b32(0x6A09E667), b32(0xBB67AE85), b32(0x3C6EF372), b32(0xA54FF53A),
     b32(0x510E527F), b32(0x9B05688C), b32(0x1F83D9AB), b32(0x5BE0CD19),
 ]
-def compress(V, I):
-    W = [b32(0) for _ in range(64)]
-    for j in range(16):
-        W[j] = I[j]
+def compress(V, W):
+    W = concat(W, repeat([b32(0)], 48))
     for j in range(16, 64):
         S0 = ROR(W[j - 15], 7) ^ ROR(W[j - 15], 18) ^ W[j - 15] >> 3
         S1 = ROR(W[j - 2], 17) ^ ROR(W[j - 2], 19) ^ W[j - 2] >> 10

@@ -10,10 +10,8 @@ def G1(x, y, z):
     return [y[i] if x[i] else z[i] for i in range(32)]
 T0 = b32(0x79cc4519)
 T1 = b32(0x7a879d8a)
-def compress(V, I):
-    W = [b32(0) for _ in range(68)]
-    for j in range(0, 16):
-        W[j] = I[j]
+def compress(V, W):
+    W = concat(W, repeat([b32(0)], 52))
     for j in range(16, 68):
         W[j] = P1(W[j - 16] ^ W[j - 9] ^ ROL(W[j - 3], 15)) ^ ROL(W[j - 13], 7) ^ W[j - 6]
     A = V[0]

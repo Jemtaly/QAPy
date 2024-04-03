@@ -50,21 +50,28 @@ def shape(x):
         return (frozenset(x), *outer), inner
     raise TypeError('unsupported data type')
 # built-in functions
-def BIlen(x):
-    if isinstance(x, list):
-        return len(x)
-    if isinstance(x, dict):
-        return len(x)
+def xxzip(fst, *args):
+    if isinstance(fst, list):
+        if not all(range(len(fst)) == range(len(arg)) for arg in args):
+            raise TypeError('inconsistent shape of arguments')
+        return [(fst[key], *(arg[key] for arg in args)) for key in range(len(fst))]
+    if isinstance(fst, dict):
+        if not all(frozenset(fst) == frozenset(arg) for arg in args):
+            raise TypeError('inconsistent shape of arguments')
+        return {key: (fst[key], *(arg[key] for arg in args)) for key in frozenset(fst)}
     raise TypeError('unsupported data type')
-def BIzip(arg0, *args):
-    if isinstance(arg0, list):
-        if not all(range(len(arg0)) == range(len(argi)) for argi in args):
-            raise TypeError('inconsistent shape of arguments')
-        return [(arg0[key], *(argi[key] for argi in args)) for key in range(len(arg0))]
-    if isinstance(arg0, dict):
-        if not all(frozenset(arg0) == frozenset(argi) for argi in args):
-            raise TypeError('inconsistent shape of arguments')
-        return {key: (arg0[key], *(argi[key] for argi in args)) for key in frozenset(arg0)}
+def xxcon(fst, *args):
+    (fk, *fo), fi = shape(fst)
+    if isinstance(fst, list) and all(isinstance(arg, list) for arg in args) and all(ao == fo and ai == fi for (ak, *ao), ai in map(shape, args)):
+        return sum(args, fst)
+    return fst + list(args)
+def xxrep(arg, n):
+    if not isinstance(arg, list):
+        raise TypeError('repetition is only supported for lists')
+    return arg * max(assgn(n), 1)
+def xxlen(arg):
+    if isinstance(arg, list | dict):
+        return len(arg)
     raise TypeError('unsupported data type')
 class Program(Circuit, ast.NodeVisitor):
     # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
@@ -72,15 +79,15 @@ class Program(Circuit, ast.NodeVisitor):
     def __init__(self):
         Circuit.__init__(self)
         self.stack = [{
-            'range': lambda *args: range(*map(assgn, args)), 'zip': BIzip, 'len': BIlen,
+            'range': lambda *args: range(*map(assgn, args)), 'zip': xxzip, 'len': xxlen, 'concat': xxcon, 'repeat': xxrep,
+            'fmt': lambda s, *args: asstr(s).format(*map(assgn, args)),
+            'log': lambda s: print(asstr(s)),
             'gal': lambda x: self.GALOIS(x) if isbin(x) else asgal(x),
             'b8':  lambda x: (x + [0x00] *  8)[: 8] if isbin(x) else self.BINARY(asgal(x),  8),
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0x00] * min(assgn(n), 1))[:min(n, 1)] if isbin(x) else self.BINARY(asgal(x), min(assgn(n), 1)),
-            'fmt': lambda s, *args: asstr(s).format(*map(assgn, args)),
-            'log': lambda s: print(asstr(s)),
+            'bin': lambda x, n: (x + [0x00] * max(assgn(n), 1))[:max(n, 1)] if isbin(x) else self.BINARY(asgal(x), max(assgn(n), 1)),
             'binadd': lambda x, y, c = 0x00: self.BINADD(asbin(x), asbin(y), asgal(c)),
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
             'binmul': lambda x, y, c = [], d = []: self.BINMUL(asbin(x), asbin(y), asbin(c), asbin(d)),
@@ -109,17 +116,23 @@ class Program(Circuit, ast.NodeVisitor):
             raise
     def generic_visit(self, node):
         raise SyntaxError('unsupported syntax')
+    def visit_Constant(self, node):
+        if isinstance(node.value, int):
+            return node.value % ρ
+        if isinstance(node.value, str):
+            return node.value
+        raise SyntaxError('invalid constant')
+    def visit_Expr(self, node):
+        self.visit(node.value)
+        return None, None
+    def visit_Pass(self, node):
+        return None, None
     def visit_Continue(self, node):
         return 'continue', None
     def visit_Break(self, node):
         return 'break', None
     def visit_Return(self, node):
         return 'return', self.visit(node.value) if node.value else None
-    def visit_Pass(self, node):
-        return None, None
-    def visit_Expr(self, node):
-        self.visit(node.value)
-        return None, None
     def visit_FunctionDef(self, node):
         func_stack = self.stack
         def func(*args):
@@ -154,6 +167,10 @@ class Program(Circuit, ast.NodeVisitor):
                 self.stack = call_stack
             return result
         return func
+    def visit_Call(self, node):
+        func = self.visit(node.func)
+        args = [self.visit(arg) for arg in node.args]
+        return func(*args)
     def assign(self, target, value):
         if isinstance(target, ast.Tuple):
             if not isinstance(value, tuple) or len(target.elts) != len(value):
@@ -192,6 +209,11 @@ class Program(Circuit, ast.NodeVisitor):
                 raise SyntaxError('invalid deletion target')
             self.stack[-1].pop(target.id)
         return None, None
+    def visit_Name(self, node):
+        for scope in reversed(self.stack):
+            if node.id in scope:
+                return scope[node.id]
+        raise NameError('undefined name: {}'.format(node.id))
     def visit_If(self, node):
         if asint(self.visit(node.test)):
             for stmt in node.body:
@@ -305,17 +327,6 @@ class Program(Circuit, ast.NodeVisitor):
         return res
     def visit_Tuple(self, node):
         return tuple(self.visit(elt) for elt in node.elts)
-    def visit_Constant(self, node):
-        if isinstance(node.value, int):
-            return node.value % ρ
-        if isinstance(node.value, str):
-            return node.value
-        raise SyntaxError('invalid constant')
-    def visit_Name(self, node):
-        for scope in reversed(self.stack):
-            if node.id in scope:
-                return scope[node.id]
-        raise NameError('undefined name: {}'.format(node.id))
     def visit_Subscript(self, node):
         slice = self.visit(node.slice)
         value = self.visit(node.value)
@@ -326,10 +337,6 @@ class Program(Circuit, ast.NodeVisitor):
             return self.GETBYBIN(value, slice if isbin(slice) else self.BINARY(asgal(slice), (len(value) - 1).bit_length()))
         keys, *outer = outer
         return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
-    def visit_Call(self, node):
-        func = self.visit(node.func)
-        args = [self.visit(arg) for arg in node.args]
-        return func(*args)
     def visit_Set(self, node):
         # this syntax is used for summing binary values
         # use * to represent negation (except for the first element)
@@ -371,17 +378,6 @@ class Program(Circuit, ast.NodeVisitor):
             return self.SHL(asbin(left), assgn(right))
         if isinstance(node.op, ast.RShift):
             return self.SHR(asbin(left), assgn(right))
-        if isinstance(node.op, ast.MatMult):
-            if isinstance(left, list) and isinstance(right, list):
-                (lkeys, *louter), linner = shape(left)
-                (rkeys, *router), rinner = shape(right)
-                if louter != router or linner != rinner:
-                    raise TypeError('inconsistent shape of two lists in concatenation')
-                return left + right
-            elif isinstance(left, list) and isinstance(right, int) and right >= 1:
-                return left * right
-            elif isinstance(left, int) and left >= 1 and isinstance(right, list):
-                return right * left
         raise SyntaxError('unsupported binary operation')
     def visit_UnaryOp(self, node):
         operand = self.visit(node.operand)
