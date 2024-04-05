@@ -24,47 +24,46 @@ def asstr(x):
     if isinstance(x, str):
         return x
     raise TypeError('expected a string')
-def asint(x, sgn = True, pos = False):
-    if isinstance(x, int) and (not sgn or (x := (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2) > 0 or not pos):
+def asint(x, sgn = True, nat = False):
+    if isinstance(x, int) and (not sgn or (x := (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2) >= 0 or not nat):
         return x
-    raise TypeError('expected a {} constant field element'.format('positive' if pos else 'signed' if sgn else 'unsigned'))
+    raise TypeError('expected a {} constant field element'.format('non-negative' if nat else 'signed' if sgn else 'unsigned'))
 # get the shape of a value (binary value will be treated as a list of field elements)
 def shape(x):
     if isinstance(x, (int, Var)):
-        return (), None
+        return 'gal', ...
     if isinstance(x, tuple):
-        return (), tuple(shape(v) for v in x)
+        return 'tup', tuple(shape(v) for v in x)
     if isinstance(x, list):
         shapes = {shape(v) for v in x}
-        assert len(shapes) == 1
-        outer, inner = shapes.pop()
-        return (range(len(x)), *outer), inner
+        assert len(shapes) <= 1
+        return range(len(x)), shapes.pop() if shapes else ('...', ...)
     if isinstance(x, dict):
         shapes = {shape(v) for v in x.values()}
-        assert len(shapes) == 1
-        outer, inner = shapes.pop()
-        return (frozenset(x), *outer), inner
+        assert len(shapes) <= 1
+        return frozenset(x), shapes.pop() if shapes else ('...', ...)
     raise TypeError('unsupported data type')
 # built-in functions
 def xxzip(fst, *args):
     if isinstance(fst, list):
-        if not all(range(len(fst)) == range(len(arg)) for arg in args):
+        if not all(isinstance(arg, list) and range(len(fst)) == range(len(arg)) for arg in args):
             raise TypeError('inconsistent shape of zipped arguments')
         return [(fst[key], *(arg[key] for arg in args)) for key in range(len(fst))]
     if isinstance(fst, dict):
-        if not all(frozenset(fst) == frozenset(arg) for arg in args):
+        if not all(isinstance(arg, dict) and frozenset(fst) == frozenset(arg) for arg in args):
             raise TypeError('inconsistent shape of zipped arguments')
         return {key: (fst[key], *(arg[key] for arg in args)) for key in frozenset(fst)}
     raise TypeError('only lists and dicts are supported for zipping')
-def xxcon(fst, *args):
-    if isinstance(fst, list):
-        (fk, *fo), fi = shape(fst)
-        if all(isinstance(arg, list) for arg in args) and all(ao == fo and ai == fi for (ak, *ao), ai in map(shape, args)):
-            return sum(args, fst)
-    raise TypeError('only lists are supported for concatenation')
+def xxcon(*args):
+    shapes = [shape(arg) for arg in args]
+    if not all(isinstance(keys, range) for keys, inner in shapes):
+        raise TypeError('only lists are supported for concatenation')
+    if len({inner for keys, inner in shapes if inner != ('...', ...)}) > 1:
+        raise TypeError('inconsistent shape of concatenated arguments')
+    return sum(args, [])
 def xxrep(arg, n):
     if isinstance(arg, list):
-        return arg * asint(n, pos = True)
+        return arg * asint(n, nat = True)
     raise TypeError('only lists are supported for repetition')
 def xxslc(arg, i, j):
     if isinstance(arg, list):
@@ -95,7 +94,7 @@ class Program(Circuit, ast.NodeVisitor):
             'b16': lambda x: (x + [0x00] * 16)[:16] if isbin(x) else self.BINARY(asgal(x), 16),
             'b32': lambda x: (x + [0x00] * 32)[:32] if isbin(x) else self.BINARY(asgal(x), 32),
             'b64': lambda x: (x + [0x00] * 64)[:64] if isbin(x) else self.BINARY(asgal(x), 64),
-            'bin': lambda x, n: (x + [0x00] * asint(n, pos = True))[:asint(n, pos = True)] if isbin(x) else self.BINARY(asgal(x), asint(n, pos = True)),
+            'bin': lambda x, n: (x + [0x00] * asint(n, nat = True))[:asint(n, nat = True)] if isbin(x) else self.BINARY(asgal(x), asint(n, nat = True)),
             'binadd': lambda x, y, c = 0x00: self.BINADD(asbin(x), asbin(y), asgal(c)),
             'binsub': lambda x, y, c = 0x00: self.BINSUB(asbin(x), asbin(y), asgal(c)),
             'binmul': lambda x, y, c = [], d = []: self.BINMUL(asbin(x), asbin(y), asbin(c), asbin(d)),
@@ -196,15 +195,15 @@ class Program(Circuit, ast.NodeVisitor):
             slices.append(self.visit(target.slice))
             target = target.value
         dest = self.visit(target)
-        outer, inner = shape(dest)
+        inner = shape(dest)
         enums = []
         for slice in reversed(slices):
-            if len(outer) == 0:
-                raise TypeError('cannot index a scalar')
-            keys, *outer = outer
+            keys, inner = inner
+            if not isinstance(keys, range | frozenset):
+                raise TypeError('invalid item assignment target')
             enums.append(self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
-        if (tuple(outer), inner) != shape(value):
-            raise TypeError('inconsistent shape of target and value in indexed assignment')
+        if tuple(inner) != shape(value):
+            raise TypeError('inconsistent shape of target and value in item assignment')
         self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
     def visit_Assign(self, node):
         value = self.visit(node.value)
@@ -302,7 +301,7 @@ class Program(Circuit, ast.NodeVisitor):
             finally:
                 self.stack = call_stack
         res = list(visit(node.generators))
-        if len({shape(x) for x in res}) != 1:
+        if len({shape(x) for x in res}) > 1:
             raise TypeError('inconsistent shape of list elements')
         return res
     def visit_DictComp(self, node):
@@ -320,17 +319,17 @@ class Program(Circuit, ast.NodeVisitor):
             finally:
                 self.stack = call_stack
         res = dict(visit(node.generators))
-        if len({shape(x) for x in res.values()}) != 1:
+        if len({shape(x) for x in res.values()}) > 1:
             raise TypeError('inconsistent shape of dict values')
         return res
     def visit_List(self, node):
         res = list(self.visit(elt) for elt in node.elts)
-        if len({shape(x) for x in res}) != 1:
+        if len({shape(x) for x in res}) > 1:
             raise TypeError('inconsistent shape of list elements')
         return res
     def visit_Dict(self, node):
         res = dict((asint(self.visit(key), sgn = False), self.visit(value)) for key, value in zip(node.keys, node.values))
-        if len({shape(x) for x in res.values()}) != 1:
+        if len({shape(x) for x in res.values()}) > 1:
             raise TypeError('inconsistent shape of dict values')
         return res
     def visit_Tuple(self, node):
@@ -338,13 +337,12 @@ class Program(Circuit, ast.NodeVisitor):
     def visit_Subscript(self, node):
         slice = self.visit(node.slice)
         value = self.visit(node.value)
-        outer, inner = shape(value)
-        if len(outer) == 0:
-            raise TypeError('cannot index a scalar')
-        if isinstance(value, list): # optimize for list
+        keys, inner = shape(value)
+        if isinstance(keys, range):
             return self.GETBYBIN(value, slice if isbin(slice) else self.BINARY(asgal(slice), (len(value) - 1).bit_length()))
-        keys, *outer = outer
-        return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
+        if isinstance(keys, frozenset):
+            return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
+        raise TypeError('unsupported slicing')
     def visit_Set(self, node):
         # this syntax is used for summing binary values
         # use * to represent negation (except for the first element)
@@ -481,7 +479,7 @@ class Compiler(Program):
                 if not isinstance(elt, ast.Subscript):
                     raise SyntaxError('invalid output target')
                 slice = self.visit(elt.slice)
-                slices.append(asint(slice, pos = True))
+                slices.append(asint(slice, nat = True))
                 length *= slice
                 elt = elt.value
             outputs.append((slices, length, elt.id))

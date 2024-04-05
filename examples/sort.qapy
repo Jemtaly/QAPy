@@ -1,27 +1,16 @@
 a = [secret(fmt('a[{}]', i)) for i in range(256)]
 with a as r[256]:
-    def msort(a):
-        if len(a) == 1:
+    def qsort(a):
+        if len(a) <= 1:
             return a
-        n = len(a)
-        m = len(a) // 2
-        x = msort(slice(a, 0, m))
-        y = msort(slice(a, m, n))
-        i = j = k = 0
-        while i < len(x) and j < len(y):
-            if b64(x[i]) < b64(y[j]):
-                a[k], i, k = x[i], i + 1, k + 1
-            else:
-                a[k], j, k = y[j], j + 1, k + 1
-        while i < len(x):
-            a[k], i, k = x[i], i + 1, k + 1
-        while j < len(y):
-            a[k], j, k = y[j], j + 1, k + 1
-        return a
-    return msort(a)
+        p, a = a[0], slice(a, 1, len(a))
+        x = [t for i, t in a if b64(t) < b64(p)]
+        y = [t for i, t in a if b64(t) >= b64(p)]
+        return concat(qsort(x), [p], qsort(y))
+    return qsort(a)
 assert_is_perm(a, r, 'r is not a permutation of a')
-y = [b64(r[i]) for i in range(256)]
+R = [b64(r[i]) for i in range(256)]
 for i in range(1, 256):
-    assert_binle(y[i - 1], y[i], 'r is not sorted')
+    assert_binle(R[i - 1], R[i], 'r is not sorted')
 for i in range(256):
     reveal(fmt('r[{}]', i), r[i])
