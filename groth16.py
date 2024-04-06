@@ -1,7 +1,7 @@
-import pymcl
 import fft
 import multiprocessing
 import random
+import pymcl
 # the parameters of the elliptic curve
 ρ = pymcl.r
 g1 = pymcl.g1

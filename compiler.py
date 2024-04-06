@@ -1,6 +1,6 @@
+from circuit import Circuit, Var
 import ast
 import pymcl
-from circuit import Circuit, Var
 ρ = pymcl.r
 # check the type of a value
 def isgal(x):

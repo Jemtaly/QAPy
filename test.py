@@ -1,7 +1,7 @@
 #!/usr/bin/python3
-import time
 import compiler
 import groth16
+import time
 class Timer:
     # This is used to measure the time of a block of code.
     def __init__(self, text):
