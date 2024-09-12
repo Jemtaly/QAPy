@@ -1,4 +1,4 @@
-def network(n, j = 0):
+def network(n, j=0):
     if n <= 1:
         return []
     k = n // 2
@@ -12,7 +12,9 @@ def network(n, j = 0):
     for i in range(rbitn):
         net.append((j + i, j + i + k))
     return net
-def genbits(lft, rgt, no_rec = False):
+
+
+def genbits(lft, rgt, no_rec=False):
     n = min(len(lft), len(rgt))
     if n <= 1:
         return []
@@ -20,8 +22,8 @@ def genbits(lft, rgt, no_rec = False):
     lbitn = n // 2
     rbitn = n // 2 + n % 2 - 1
     # generate lookup tables
-    ls = sorted(range(n), key = lft.__getitem__)
-    rs = sorted(range(n), key = rgt.__getitem__)
+    ls = sorted(range(n), key=lft.__getitem__)
+    rs = sorted(range(n), key=rgt.__getitem__)
     l2r = [None] * n
     r2l = [None] * n
     for l, r in zip(ls, rs):
@@ -90,6 +92,8 @@ def genbits(lft, rgt, no_rec = False):
     dbits = genbits(dlft, drgt)
     # concatenate and return the bits
     return lbits + ubits + dbits + rbits
+
+
 def apply(src, net, bits):
     for bit, (i, j) in zip(bits, net):
         if bit:

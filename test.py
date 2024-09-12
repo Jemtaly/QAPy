@@ -1,19 +1,28 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
+
+
+import time
+
 import compiler
 import groth16
-import time
+
+
 class Timer:
     # This is used to measure the time of a block of code.
     def __init__(self, text):
         self.text = text
+
     def __enter__(self):
-        print(self.text, end = ' ', flush = True)
+        print(self.text, end=" ", flush=True)
         self.beg = time.time()
+
     def __exit__(self, *info):
         self.end = time.time()
-        print('{:.3f} sec'.format(self.end - self.beg))
-if __name__ == '__main__':
-    with Timer('Compiling program...'):
+        print("{:.3f} sec".format(self.end - self.beg))
+
+
+def main():
+    with Timer("Compiling program..."):
         test = compiler.Compiler()
         test.compile(
             "ROR = lambda x, r: x >> r | x << 32 - r\n"
@@ -78,18 +87,22 @@ if __name__ == '__main__':
             "for i in range(8):\n"
             "    reveal(fmt('V[{}]', i), V[i])\n"
         )
-    print('Dimension of the witness vector:', test.wire_count)
-    print('Number of constraints:', len(test.gates))
-    print('Number of public entries:', len(test.stmts))
-    with Timer('Setting up QAP...'):
+    print("Dimension of the witness vector:", test.wire_count)
+    print("Number of constraints:", len(test.gates))
+    print("Number of public entries:", len(test.stmts))
+    with Timer("Setting up QAP..."):
         α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(test.wire_count, test.stmts.keys(), test.gates)
-    with Timer('Generating proof...'):
-        args = {'W[{}]'.format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
+    with Timer("Generating proof..."):
+        args = {"W[{}]".format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
         A1, B2, C1, uU = groth16.prove(test.wire_count, test.funcs, test.stmts.keys(), test.gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args)
-    with Timer('Verifying...'):
+    with Timer("Verifying..."):
         passed, outs = groth16.verify(test.stmts.values(), α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
     if passed:
-        print('Verification passed!')
-        print('Public entries:', '{{{}}}'.format(', '.join('{} = {:#010x}'.format(k, u) for k, u in outs)))
+        print("Verification passed!")
+        print("Public entries:", "{{{}}}".format(", ".join("{} = {:#010x}".format(k, u) for k, u in outs)))
     else:
-        print('Verification failed!')
+        print("Verification failed!")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,4 +1,5 @@
 a = [secret(fmt('a[{}]', i)) for i in range(256)]
+
 with a as r[256]:
     def qsort(a):
         if len(a) <= 1:
@@ -8,9 +9,13 @@ with a as r[256]:
         y = [t for i, t in a if b64(t) >= b64(p)]
         return concat(qsort(x), [p], qsort(y))
     return qsort(a)
+
 assert_is_perm(a, r, 'r is not a permutation of a')
+
 R = [b64(r[i]) for i in range(256)]
+
 for i in range(1, 256):
     assert_binle(R[i - 1], R[i], 'r is not sorted')
+
 for i in range(256):
     reveal(fmt('r[{}]', i), r[i])

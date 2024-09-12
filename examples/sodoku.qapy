@@ -1,9 +1,12 @@
 Q = [[public(fmt('Q[{}][{}]', i, j)) for j in range(9)] for i in range(9)]
 A = [[secret(fmt('A[{}][{}]', i, j)) for j in range(9)] for i in range(9)]
+
 for i in range(9):
     for j in range(9):
         assert_raw(Q[i][j] - A[i][j], Q[i][j], 0, fmt('A[{}][{}] is invalid', i, j))
+
 t = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
 for i in range(9):
     assert_is_perm([A[i][j] for j in range(9)], t, fmt('Row {} is incorrect', i))
 for j in range(9):

@@ -1,9 +1,12 @@
 ROR = lambda x, r: x >> r | x << 32 - r
+
 def MAJ(x, y, z):
     t = x & y
     return [t[i] + z[i] * (x[i] + y[i] - t[i] * 2) for i in range(32)]
+
 def CHO(x, y, z):
     return [y[i] if x[i] else z[i] for i in range(32)]
+
 K = [
     b32(0x428A2F98), b32(0x71374491), b32(0xB5C0FBCF), b32(0xE9B5DBA5),
     b32(0x3956C25B), b32(0x59F111F1), b32(0x923F82A4), b32(0xAB1C5ED5),
@@ -26,6 +29,7 @@ V = [
     b32(0x6A09E667), b32(0xBB67AE85), b32(0x3C6EF372), b32(0xA54FF53A),
     b32(0x510E527F), b32(0x9B05688C), b32(0x1F83D9AB), b32(0x5BE0CD19),
 ]
+
 def compress(V, W):
     W = concat(W, repeat([b32(0)], 48))
     for j in range(16, 64):
@@ -55,7 +59,9 @@ def compress(V, W):
     V[6] = G + V[6]
     V[7] = H + V[7]
     return V
+
 W = [b32(secret(fmt('W[{}]', i))) for i in range(16)]
 V = compress(V, W)
+
 for i in range(8):
     reveal(fmt('V[{}]', i), V[i])

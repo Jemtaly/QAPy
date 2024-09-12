@@ -1,13 +1,16 @@
 m = [i for i in range(256)]
 j = b8(0)
+
 for i in range(256):
     temp = m[i]
     j = {j, b8(temp), b8(secret(fmt('k[{}]', i)))}
     m[i] = m[j]
     m[j] = temp
+
 x = b8(0)
 y = b8(0)
 e = b8(1)
+
 for i in range(256):
     x = x + e
     a = b8(m[x])

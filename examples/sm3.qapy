@@ -3,13 +3,17 @@ P0 = lambda x: x ^ ROL(x, 9) ^ ROL(x, 17)
 P1 = lambda x: x ^ ROL(x, 15) ^ ROL(x, 23)
 F0 = lambda x, y, z: x ^ y ^ z
 G0 = lambda x, y, z: x ^ y ^ z
+
 def F1(x, y, z):
     t = x & y
     return [t[i] + z[i] * (x[i] + y[i] - t[i] * 2) for i in range(32)]
+
 def G1(x, y, z):
     return [y[i] if x[i] else z[i] for i in range(32)]
+
 T0 = b32(0x79cc4519)
 T1 = b32(0x7a879d8a)
+
 def compress(V, W):
     W = concat(W, repeat([b32(0)], 52))
     for j in range(16, 68):
@@ -43,11 +47,13 @@ def compress(V, W):
     V[6] = G ^ V[6]
     V[7] = H ^ V[7]
     return V
+
 V = [
     b32(0x7380166f), b32(0x4914b2b9), b32(0x172442d7), b32(0xda8a0600),
     b32(0xa96f30bc), b32(0x163138aa), b32(0xe38dee4d), b32(0xb0fb0e4e),
 ]
 W = [b32(secret(fmt('W[{}]', i))) for i in range(16)]
 V = compress(V, W)
+
 for i in range(8):
     reveal(fmt('V[{}]', i), V[i])
