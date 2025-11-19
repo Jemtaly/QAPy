@@ -1,11 +1,14 @@
-def pows(a, n, p):
+from typing import Iterable
+
+
+def pows(a: int, n: int, p: int) -> Iterable[int]:
     r = 1
     for _ in range(n):
         yield r
         r = r * a % p
 
 
-def pru(n, p):  # primitive root of unity
+def pru(n: int, p: int) -> int:  # primitive root of unity
     assert n & n - 1 == 0 and p - 1 & n - 1 == 0
     for Z in range(2, p):
         if pow(Z, (p - 1) // 2, p) != 1:
@@ -13,7 +16,7 @@ def pru(n, p):  # primitive root of unity
     return pow(Z, (p - 1) // n, p)
 
 
-def fft(a, w, p):
+def fft(a: list[int], w: int, p: int) -> list[int]:
     n = len(a)
     if n == 1:
         return a
@@ -26,7 +29,7 @@ def fft(a, w, p):
     return b + c
 
 
-def ifft(a, w, p):
+def ifft(a: list[int], w: int, p: int) -> list[int]:
     n = len(a)
     w = pow(w, -1, p)
     m = pow(n, -1, p)

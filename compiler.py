@@ -1,55 +1,56 @@
 import ast
+from typing import TypeGuard
 
-import pymcl
-from circuit import Circuit, Var
-
-
-ρ = pymcl.r
+from circuit import Circuit, Bin, Gal, G_C, G_V
+from pymcl import r as ρ
 
 
 # check the type of a value
-def isgal(x):
-    return isinstance(x, (int, Var))
+
+def isgal(x) -> TypeGuard[Gal]:
+    return isinstance(x, G_C | G_V)
 
 
-def isbin(x):
-    return isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x)
+def isbin(x) -> TypeGuard[Bin]:
+    return isinstance(x, list) and all(isinstance(b, G_C | G_V) for b in x)
 
 
 # assert the type of a value
-def asgal(x):
-    if isinstance(x, (int, Var)):
+
+def asgal(x) -> Gal:
+    if isinstance(x, G_C | G_V):
         return x
     raise TypeError("expected a field element")
 
 
-def asbin(x):
-    if isinstance(x, list) and all(isinstance(b, (int, Var)) for b in x):
+def asbin(x) -> Bin:
+    if isinstance(x, list) and all(isinstance(b, G_C | G_V) for b in x):
         return x
     raise TypeError("expected a binary value")
 
 
-def aslof(x):
-    if isinstance(x, list) and all(isinstance(v, (int, Var)) for v in x):
+def aslof(x) -> list[Gal]:
+    if isinstance(x, list) and all(isinstance(v, G_C | G_V) for v in x):
         return x
     raise TypeError("expected a list of field elements")
 
 
-def asstr(x):
+def asstr(x) -> str:
     if isinstance(x, str):
         return x
     raise TypeError("expected a string")
 
 
-def asint(x, sgn=True, nat=False):
+def asint(x, sgn=True, nat=False) -> int:
     if isinstance(x, int) and (not sgn or (x := (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2) >= 0 or not nat):
         return x
     raise TypeError("expected a {} constant field element".format("non-negative" if nat else "signed" if sgn else "unsigned"))
 
 
 # get the shape of a value (binary value will be treated as a list of field elements)
+
 def shape(x):
-    if isinstance(x, (int, Var)):
+    if isinstance(x, G_C | G_V):
         return "gal", ...
     if isinstance(x, tuple):
         return "tup", tuple(shape(v) for v in x)
@@ -65,6 +66,7 @@ def shape(x):
 
 
 # built-in functions
+
 def xxzip(fst, *args):
     if isinstance(fst, list):
         if not all(isinstance(arg, list) and range(len(fst)) == range(len(arg)) for arg in args):
@@ -115,6 +117,7 @@ def xxlen(arg):
 class Program(Circuit, ast.NodeVisitor):
     # The Compiler class is a wrapper of the Circuit class, it compiles the given Python code to the
     # arithmetic circuits. The Python code should be written in a restricted subset of Python.
+
     def __init__(self):
         Circuit.__init__(self)
         self.stack = [
@@ -442,7 +445,7 @@ class Program(Circuit, ast.NodeVisitor):
         if isinstance(node.op, ast.Div):
             return self.DIV(asgal(left), asgal(right))
         if isinstance(node.op, ast.Pow):
-            return self.POW(left, asbin(right)) if isbin(left) else self.BINPOW(asgal(left), asbin(right))
+            return self.BINPOW(left, asbin(right)) if isbin(left) else self.POW(asgal(left), asbin(right))
         if isinstance(node.op, ast.FloorDiv):
             return self.BINDIVMOD(left, right)[0] if isbin(left) and isbin(right) else (asint(left) // asint(right)) % ρ
         if isinstance(node.op, ast.Mod):
@@ -573,7 +576,7 @@ class Compiler(Program):
             def eval(value):
                 if isinstance(value, int):
                     return value
-                if isinstance(value, Var):
+                if isinstance(value, G_V):
                     return getw(value)
                 if isinstance(value, tuple):
                     return tuple(eval(v) for v in value)

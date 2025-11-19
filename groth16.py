@@ -1,38 +1,58 @@
 import multiprocessing
 import random
+from typing import TypeVar, Iterable
 
 import fft
-import pymcl
+from circuit import Gate, Func, Args
+from pymcl import Fr, G1, G2, pairing, g1, g2, r as ρ
 
 
-# the parameters of the elliptic curve
-ρ = pymcl.r
-g1 = pymcl.g1
-g2 = pymcl.g2
+Gn = TypeVar("Gn", G1, G2)
+Fv = Fr | int
 
 
 # scalar multiplication and dot product optimized for parallel execution
+
+
 THREADS = None  # automatically set to the number of CPU cores
 
 
-def worker(Group, p, z):
-    return str(Group(p) * pymcl.Fr(z))
+def worker(Group: type[Gn], p: str, z: str) -> str:
+    return str(Group(p) * Fr(z))
 
 
-def scalar_mult_parallel(P, Zs):
+def scalar_mult_parallel(P: Gn, Zs: Iterable[Fv]) -> list[Gn]:
     Group = type(P)
     with multiprocessing.Pool(THREADS) as pool:
         return [Group(q) for q in pool.starmap(worker, ((Group, str(P), str(Z)) for Z in Zs))]
 
 
-def dot_prod_parallel(O, Ps, Zs):
+def dot_prod_parallel(O: Gn, Ps: Iterable[Gn], Zs: Iterable[Fv]) -> Gn:
     Group = type(O)
     with multiprocessing.Pool(THREADS) as pool:
         return sum((Group(q) for q in pool.starmap(worker, ((Group, str(P), str(Z)) for P, Z in zip(Ps, Zs, strict=True)))), O)
 
 
 # Groth16 zk-SNARK setup, prove, and verify methods
-def setup(wire_count, skeys, gates):
+
+
+def setup(
+    wire_count: int,
+    skeys: list[int],
+    gates: list[Gate],
+) -> tuple[
+    G1,
+    G1,
+    G1,
+    G2,
+    G2,
+    G2,
+    list[G1],
+    list[G1],
+    list[G1],
+    list[G2],
+    list[G1],
+]:
     α = random.randrange(1, ρ)
     β = random.randrange(1, ρ)
     γ = random.randrange(1, ρ)
@@ -72,12 +92,12 @@ def setup(wire_count, skeys, gates):
     Zτ = pow(τ, I, ρ) - 0x01  # Z(τ), where Z(X) = Πᵢ₌₀ᴵ⁻¹ (X - pⁱ)
     Γ = pow(γ, -1, ρ)
     Δ = pow(δ, -1, ρ)
-    α1 = g1 * pymcl.Fr(str(α))
-    β1 = g1 * pymcl.Fr(str(β))
-    δ1 = g1 * pymcl.Fr(str(δ))
-    β2 = g2 * pymcl.Fr(str(β))
-    γ2 = g2 * pymcl.Fr(str(γ))
-    δ2 = g2 * pymcl.Fr(str(δ))
+    α1 = g1 * Fr(str(α))
+    β1 = g1 * Fr(str(β))
+    δ1 = g1 * Fr(str(δ))
+    β2 = g2 * Fr(str(β))
+    γ2 = g2 * Fr(str(γ))
+    δ2 = g2 * Fr(str(δ))
     u1U = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Γ % ρ for m in skeys))
     v1V = scalar_mult_parallel(g1, ((β * AτM[m] + α * BτM[m] + CτM[m]) * Δ % ρ for m in range(M) if m not in skeys))
     x1I = scalar_mult_parallel(g1, fft.pows(τ, I, ρ))
@@ -86,7 +106,27 @@ def setup(wire_count, skeys, gates):
     return α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I
 
 
-def prove(wire_count, funcs, skeys, gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args):
+def prove(
+    wire_count: int,
+    funcs: list[Func],
+    skeys: list[int],
+    gates: list[Gate],
+    α1: G1,
+    β1: G1,
+    δ1: G1,
+    β2: G2,
+    δ2: G2,
+    v1V: list[G1],
+    x1I: list[G1],
+    x2I: list[G2],
+    y1I: list[G1],
+    args: Args,
+) -> tuple[
+    G1,
+    G2,
+    G1,
+    list[int],
+]:
     r = random.randrange(1, ρ)
     s = random.randrange(1, ρ)
     N = len(gates)
@@ -95,11 +135,11 @@ def prove(wire_count, funcs, skeys, gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2
     J = 1 << (N - 1).bit_length() + 1
     p = fft.pru(I, ρ)
     q = fft.pru(J, ρ)
-    wM = []
+    wM = list[int]()
     getw = lambda tM: sum(wM[m] * t for m, t in ([(0, tM)] if isinstance(tM, int) else tM.data.items())) % ρ  # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
     for n, func in funcs:
         res = func(getw, args)
-        if n == -1:
+        if n is None:
             wM.append(res)
         else:
             assert len(res) == n
@@ -133,19 +173,33 @@ def prove(wire_count, funcs, skeys, gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2
     cwI = fft.fft([Cw * k % ρ for k, Cw in zip(fft.pows(q, I, ρ), CwI)], p, ρ)  # Coset FFT
     hI = [(ρ - 1) // 2 * (aw * bw - cw) % ρ for aw, bw, cw in zip(awI, bwI, cwI)]  # (A * B - C) / Z on coset
     HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ))]  # Coset iFFT
-    A1 = α1 + δ1 * pymcl.Fr(str(r))
+    A1 = α1 + δ1 * Fr(str(r))
     A1 = dot_prod_parallel(A1, x1I, AwI)
-    B1 = β1 + δ1 * pymcl.Fr(str(s))
+    B1 = β1 + δ1 * Fr(str(s))
     B1 = dot_prod_parallel(B1, x1I, BwI)
-    B2 = β2 + δ2 * pymcl.Fr(str(s))
+    B2 = β2 + δ2 * Fr(str(s))
     B2 = dot_prod_parallel(B2, x2I, BwI)
-    C1 = A1 * pymcl.Fr(str(s)) + B1 * pymcl.Fr(str(r)) - δ1 * pymcl.Fr(str(r * s % ρ))
+    C1 = A1 * Fr(str(s)) + B1 * Fr(str(r)) - δ1 * Fr(str(r * s % ρ))
     C1 = dot_prod_parallel(C1, y1I, HI)
     C1 = dot_prod_parallel(C1, v1V, vV)
     return A1, B2, C1, uU
 
 
-def verify(names, α1, β2, γ2, δ2, u1U, A1, B2, C1, uU):
-    D1 = g1 * pymcl.Fr(str(0))
+def verify(
+    names: list[str],
+    α1: G1,
+    β2: G2,
+    γ2: G2,
+    δ2: G2,
+    u1U: list[G1],
+    A1: G1,
+    B2: G2,
+    C1: G1,
+    uU: list[int],
+) -> tuple[
+    bool,
+    list[tuple[str, int]],
+]:
+    D1 = g1 * Fr(str(0))
     D1 = dot_prod_parallel(D1, u1U, uU)
-    return pymcl.pairing(A1, B2) == pymcl.pairing(α1, β2) * pymcl.pairing(D1, γ2) * pymcl.pairing(C1, δ2), list(zip(names, uU))
+    return pairing(A1, B2) == pairing(α1, β2) * pairing(D1, γ2) * pairing(C1, δ2), list(zip(names, uU))
