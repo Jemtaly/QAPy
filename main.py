@@ -3,9 +3,11 @@
 import argparse
 import dill
 
-import compiler
-import groth16
 from pymcl import G1, G2, g1, g2, r as ρ
+
+from circuit import Witness
+from compiler import Compiler
+import groth16
 
 
 L0 = ((ρ - 1).bit_length() + 7) // 8
@@ -53,7 +55,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "compile":
-        test = compiler.Compiler()
+        test = Compiler()
         with open(args.file, "r") as file:
             print("Compiling the source code...")
             test.compile(file.read())
@@ -125,8 +127,9 @@ def main():
             x1I = [G1.deserialize(prove.read(L1)) for _ in range(I)]
             x2I = [G2.deserialize(prove.read(L2)) for _ in range(I)]
             y1I = [G1.deserialize(prove.read(L1)) for _ in range(I)]
+        witness = Witness(funcs, args.args)
         print("Generating proof...")
-        A1, B2, C1, uU = groth16.prove(wire_count, funcs, skeys, gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, args.args)
+        A1, B2, C1, uU = groth16.prove(wire_count, skeys, gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, witness)
         with open(args.proof, "wb") as proof:
             print("Saving proof to:", args.proof)
             proof.write(A1.serialize())

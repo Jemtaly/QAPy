@@ -3,12 +3,14 @@ import random
 from typing import TypeVar, Iterable
 
 import fft
-from circuit import Gate, Func, Args
+
 from pymcl import Fr, G1, G2, pairing, g1, g2, r as ρ
+
+from circuit import Witness, Gate, Fld
 
 
 Gn = TypeVar("Gn", G1, G2)
-Fv = Fr | int
+Fv = Fr | Fld
 
 
 # scalar multiplication and dot product optimized for parallel execution
@@ -38,7 +40,7 @@ def dot_prod_parallel(O: Gn, Ps: Iterable[Gn], Zs: Iterable[Fv]) -> Gn:
 
 def setup(
     wire_count: int,
-    skeys: list[int],
+    skeys: Iterable[int],
     gates: list[Gate],
 ) -> tuple[
     G1,
@@ -108,8 +110,7 @@ def setup(
 
 def prove(
     wire_count: int,
-    funcs: list[Func],
-    skeys: list[int],
+    skeys: Iterable[int],
     gates: list[Gate],
     α1: G1,
     β1: G1,
@@ -120,12 +121,12 @@ def prove(
     x1I: list[G1],
     x2I: list[G2],
     y1I: list[G1],
-    args: Args,
+    witness: Witness,
 ) -> tuple[
     G1,
     G2,
     G1,
-    list[int],
+    list[Fld],
 ]:
     r = random.randrange(1, ρ)
     s = random.randrange(1, ρ)
@@ -135,24 +136,16 @@ def prove(
     J = 1 << (N - 1).bit_length() + 1
     p = fft.pru(I, ρ)
     q = fft.pru(J, ρ)
-    wM = list[int]()
-    getw = lambda tM: sum(wM[m] * t for m, t in ([(0, tM)] if isinstance(tM, int) else tM.data.items())) % ρ  # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
-    for n, func in funcs:
-        res = func(getw, args)
-        if n is None:
-            wM.append(res)
-        else:
-            assert len(res) == n
-            wM.extend(res)
+    wM = witness.vec
     uU = [wM[m] for m in skeys]
     vV = [wM[m] for m in range(M) if m not in skeys]
     awN = []
     bwN = []
     cwN = []
     for aM, bM, cM, msg in gates:
-        aw = getw(aM)
-        bw = getw(bM)
-        cw = getw(cM)
+        aw = witness.apply(aM)
+        bw = witness.apply(bM)
+        cw = witness.apply(cM)
         assert aw * bw % ρ == cw, msg
         awN.append(aw)
         bwN.append(bw)
@@ -168,11 +161,11 @@ def prove(
     AwI = fft.ifft(awN + [0x00] * (I - N), p, ρ)
     BwI = fft.ifft(bwN + [0x00] * (I - N), p, ρ)
     CwI = fft.ifft(cwN + [0x00] * (I - N), p, ρ)
-    awI = fft.fft([Aw * k % ρ for k, Aw in zip(fft.pows(q, I, ρ), AwI)], p, ρ)  # Coset FFT
-    bwI = fft.fft([Bw * k % ρ for k, Bw in zip(fft.pows(q, I, ρ), BwI)], p, ρ)  # Coset FFT
-    cwI = fft.fft([Cw * k % ρ for k, Cw in zip(fft.pows(q, I, ρ), CwI)], p, ρ)  # Coset FFT
-    hI = [(ρ - 1) // 2 * (aw * bw - cw) % ρ for aw, bw, cw in zip(awI, bwI, cwI)]  # (A * B - C) / Z on coset
-    HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ))]  # Coset iFFT
+    awI = fft.fft([Aw * k % ρ for k, Aw in zip(fft.pows(q, I, ρ), AwI, strict=True)], p, ρ)  # Coset FFT
+    bwI = fft.fft([Bw * k % ρ for k, Bw in zip(fft.pows(q, I, ρ), BwI, strict=True)], p, ρ)  # Coset FFT
+    cwI = fft.fft([Cw * k % ρ for k, Cw in zip(fft.pows(q, I, ρ), CwI, strict=True)], p, ρ)  # Coset FFT
+    hI = [(ρ - 1) // 2 * (aw * bw - cw) % ρ for aw, bw, cw in zip(awI, bwI, cwI, strict=True)]  # (A * B - C) / Z on coset
+    HI = [H * k % ρ for k, H in zip(fft.pows(pow(q, -1, ρ), I, ρ), fft.ifft(hI, p, ρ), strict=True)]  # Coset iFFT
     A1 = α1 + δ1 * Fr(str(r))
     A1 = dot_prod_parallel(A1, x1I, AwI)
     B1 = β1 + δ1 * Fr(str(s))
@@ -186,7 +179,7 @@ def prove(
 
 
 def verify(
-    names: list[str],
+    names: Iterable[str],
     α1: G1,
     β2: G2,
     γ2: G2,
@@ -195,11 +188,11 @@ def verify(
     A1: G1,
     B2: G2,
     C1: G1,
-    uU: list[int],
+    uU: list[Fld],
 ) -> tuple[
     bool,
-    list[tuple[str, int]],
+    list[tuple[str, Fld]],
 ]:
     D1 = g1 * Fr(str(0))
     D1 = dot_prod_parallel(D1, u1U, uU)
-    return pairing(A1, B2) == pairing(α1, β2) * pairing(D1, γ2) * pairing(C1, δ2), list(zip(names, uU))
+    return pairing(A1, B2) == pairing(α1, β2) * pairing(D1, γ2) * pairing(C1, δ2), list(zip(names, uU, strict=True))

@@ -1,36 +1,37 @@
 import ast
-from typing import TypeGuard
+from typing import TypeGuard, Literal
 
-from circuit import Circuit, Bin, Gal, G_C, G_V
 from pymcl import r as ρ
+
+from circuit import Circuit, Bin, Gal, Fld, Var, Any, Set
 
 
 # check the type of a value
 
 def isgal(x) -> TypeGuard[Gal]:
-    return isinstance(x, G_C | G_V)
+    return isinstance(x, Fld | Var)
 
 
 def isbin(x) -> TypeGuard[Bin]:
-    return isinstance(x, list) and all(isinstance(b, G_C | G_V) for b in x)
+    return isinstance(x, list) and all(isinstance(b, Fld | Var) for b in x)
 
 
 # assert the type of a value
 
 def asgal(x) -> Gal:
-    if isinstance(x, G_C | G_V):
+    if isinstance(x, Fld | Var):
         return x
     raise TypeError("expected a field element")
 
 
 def asbin(x) -> Bin:
-    if isinstance(x, list) and all(isinstance(b, G_C | G_V) for b in x):
+    if isinstance(x, list) and all(isinstance(b, Fld | Var) for b in x):
         return x
     raise TypeError("expected a binary value")
 
 
 def aslof(x) -> list[Gal]:
-    if isinstance(x, list) and all(isinstance(v, G_C | G_V) for v in x):
+    if isinstance(x, list) and all(isinstance(v, Fld | Var) for v in x):
         return x
     raise TypeError("expected a list of field elements")
 
@@ -41,7 +42,7 @@ def asstr(x) -> str:
     raise TypeError("expected a string")
 
 
-def asint(x, sgn=True, nat=False) -> int:
+def asint(x, sgn=True, nat=False) -> Fld:
     if isinstance(x, int) and (not sgn or (x := (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2) >= 0 or not nat):
         return x
     raise TypeError("expected a {} constant field element".format("non-negative" if nat else "signed" if sgn else "unsigned"))
@@ -49,19 +50,23 @@ def asint(x, sgn=True, nat=False) -> int:
 
 # get the shape of a value (binary value will be treated as a list of field elements)
 
-def shape(x):
-    if isinstance(x, G_C | G_V):
-        return "gal", ...
+
+Shape = tuple[Literal["gal"], None] | tuple[Literal["any"], None] | tuple[Literal["tup"], tuple["Shape", ...]] | tuple[Set, "Shape"]
+
+
+def shape(x: Any) -> Shape:
+    if isinstance(x, Fld | Var):
+        return "gal", None
     if isinstance(x, tuple):
         return "tup", tuple(shape(v) for v in x)
     if isinstance(x, list):
         shapes = {shape(v) for v in x}
         assert len(shapes) <= 1
-        return range(len(x)), shapes.pop() if shapes else ("...", ...)
+        return range(len(x)), shapes.pop() if shapes else ("any", None)
     if isinstance(x, dict):
         shapes = {shape(v) for v in x.values()}
         assert len(shapes) <= 1
-        return frozenset(x), shapes.pop() if shapes else ("...", ...)
+        return frozenset(x), shapes.pop() if shapes else ("any", None)
     raise TypeError("unsupported data type")
 
 
@@ -83,7 +88,7 @@ def xxcon(*args):
     shapes = [shape(arg) for arg in args]
     if not all(isinstance(keys, range) for keys, inner in shapes):
         raise TypeError("only lists are supported for concatenation")
-    if len({inner for keys, inner in shapes if inner != ("...", ...)}) > 1:
+    if len({inner for keys, inner in shapes if inner != ("any", None)}) > 1:
         raise TypeError("inconsistent shape of concatenated arguments")
     return sum(args, [])
 
@@ -574,9 +579,9 @@ class Compiler(Program):
 
         def func(getw, args):
             def eval(value):
-                if isinstance(value, int):
+                if isinstance(value, Fld):
                     return value
-                if isinstance(value, G_V):
+                if isinstance(value, Var):
                     return getw(value)
                 if isinstance(value, tuple):
                     return tuple(eval(v) for v in value)

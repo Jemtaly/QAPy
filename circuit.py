@@ -2,40 +2,56 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable, TypeVar
 
 import waksman
+
 from pymcl import r as ρ
 
 
-G_C = int
+Fld = int
 
 
 @dataclass
-class G_V:
+class Var:
     # All variables in a program are linear combinations of the entries in its witness vector, so they
     # can be represented by a dictionary that maps the indices of the entries in the witness vector to
     # their coefficients, for example, x = w₀ + 5w₂ + 7w₃ can be represented as {0: 1, 2: 5, 3: 7}, note
     # that the entries with coefficient 0 are always omitted.
     # Besides, constants are always represented by the integer itself.
 
-    data: dict[int, G_C] = field(default_factory=lambda: {})
+    data: dict[int, Fld] = field(default_factory=lambda: {})
 
 
-Gal = G_V | G_C
+Gal = Var | Fld
 Bit = Gal
 Bin = list[Bit]
-Key = dict[int, Bit]
-Any = Gal | list["Any"] | dict[int, "Any"] | tuple["Any", ...]
-Spc = Any | list["Spc"] | dict[int, "Spc"]
+Key = dict[Fld, Bit]
+Any = Gal | list["Any"] | dict[Fld, "Any"] | tuple["Any", ...]
+Spc = Any | list["Spc"] | dict[Fld, "Spc"]
 ANY = TypeVar("ANY", bound=Any)
 SPC = TypeVar("SPC", bound=Spc)
-Set = frozenset[int] | range
+Set = frozenset[Fld] | range
 
 
 Gate = tuple[Gal, Gal, Gal, str]
-Getw = Callable[[Gal], G_C]
-Args = dict[str, G_C]
-S_Fn = Callable[[Getw, Args], G_C]
-M_Fn = Callable[[Getw, Args], Iterable[G_C]]
+Getw = Callable[[Gal], Fld]
+Args = dict[str, Fld]
+S_Fn = Callable[[Getw, Args], Fld]
+M_Fn = Callable[[Getw, Args], Iterable[Fld]]
 Func = tuple[None, S_Fn] | tuple[int, M_Fn]
+
+
+class Witness:
+    def __init__(self, funcs: list[Func], args: Args) -> None:
+        self.vec: list[Fld] = []
+        for n, func in funcs:
+            res = func(self.apply, args)
+            if n is None:
+                self.vec.append(res)
+            else:
+                assert len(res) == n
+                self.vec.extend(res)
+
+    def apply(self, xGal: Gal) -> Fld:
+        return sum(self.vec[m] * a for m, a in ([(0, xGal)] if isinstance(xGal, int) else xGal.data.items())) % ρ  # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
 
 
 class Circuit:
@@ -47,7 +63,7 @@ class Circuit:
     funcs: list[Func]  # functions to generate the witness vector entries
     stmts: dict[int, str]  # the public entries, keys are their indices in the witness vector, and values are their names
     gates: list[Gate]  # the constraints in the circuit, see the MKGATE method for details
-    enums: dict[Set, dict[tuple[tuple[int, G_C], ...], dict[int, G_V]]]  # memoization of the enum values
+    enums: dict[Set, dict[tuple[tuple[int, Fld], ...], Key]]  # memoization of the enum values
 
     def __init__(self) -> None:
         self.wire_count = 0
@@ -58,7 +74,7 @@ class Circuit:
         self.gates = []
         self.enums = {}
 
-    def MKWIRE(self, func: S_Fn, name: str | None = None) -> G_V:
+    def MKWIRE(self, func: S_Fn, name: str | None = None) -> Var:
         # Add a new entry defined by the given function to the witness vector.
         # For example, x = MKWIRE(lambda getw, args: getw(y) * getw(z) % ρ) will add a new entry that is
         # defined by the product of the values of y and z to the witness vector, and assign a variable
@@ -69,34 +85,34 @@ class Circuit:
         # if name is specified, the entry will be treated as public
         if name is not None:
             self.stmts[i] = name
-        return G_V({i: 0x01})
+        return Var({i: 0x01})
 
-    def MKWIRES(self, func: M_Fn, n: int) -> list[G_V]:
+    def MKWIRES(self, func: M_Fn, n: int) -> list[Var]:
         # Add n new entries defined by the given function to the witness vector, and return them as a
         # list of variables.
         i = self.wire_count
         self.funcs.append((n, func))
         self.wire_count += n
-        return [G_V({i + j: 0x01}) for j in range(n)]
+        return [Var({i + j: 0x01}) for j in range(n)]
 
     def MKGATE(self, xGal: Gal, yGal: Gal, zGal: Gal, *, msg="assertion error") -> None:
         # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
         # x * y = z, msg is the error message when the constraint is not satisfied.
-        if isinstance(xGal, G_C) or isinstance(yGal, G_C):
+        if isinstance(xGal, Fld) or isinstance(yGal, Fld):
             zGal = self.SUB(zGal, self.MUL(xGal, yGal))
-            if isinstance(zGal, G_C):
+            if isinstance(zGal, Fld):
                 assert zGal == 0x00, msg
                 return
-            xGal = 0
-            yGal = 0
+            xGal = 0x00
+            yGal = 0x00
         self.gates.append((xGal, yGal, zGal, msg))
 
-    def PARAM(self, name: str, public: bool = False) -> G_V:
+    def PARAM(self, name: str, public: bool = False) -> Var:
         # Add a new entry to the witness vector, whose value will be determined by the value correspond-
         # ing to the key named name in the args dictionary at runtime.
         return self.MKWIRE(lambda getw, args: args[name] % ρ, name if public else None)
 
-    def REVEAL(self, name: str, xGal: Gal, *, msg="reveal error") -> G_V:
+    def REVEAL(self, name: str, xGal: Gal, *, msg="reveal error") -> Var:
         # Add a public entry to the witness vetor, whose value is equal to that of the given variable.
         rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
         self.ASSERT_EQZ(self.SUB(xGal, rGal), msg=msg)
@@ -105,42 +121,42 @@ class Circuit:
     # arithmetic operations on variables
 
     def ADD(self, xGal: Gal, yGal: Gal) -> Gal:
-        if isinstance(xGal, G_C):
-            xGal = G_V({0: xGal})
-        if isinstance(yGal, G_C):
-            yGal = G_V({0: yGal})
-        rGal = G_V({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % ρ)})
+        if isinstance(xGal, Fld):
+            xGal = Var({0: xGal})
+        if isinstance(yGal, Fld):
+            yGal = Var({0: yGal})
+        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % ρ)})
         return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
 
     def SUB(self, xGal: Gal, yGal: Gal) -> Gal:
-        if isinstance(xGal, G_C):
-            xGal = G_V({0: xGal})
-        if isinstance(yGal, G_C):
-            yGal = G_V({0: yGal})
-        rGal = G_V({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
+        if isinstance(xGal, Fld):
+            xGal = Var({0: xGal})
+        if isinstance(yGal, Fld):
+            yGal = Var({0: yGal})
+        rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
         return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
 
     def MUL(self, xGal: Gal, yGal: Gal, *, msg="multiplication error") -> Gal:
-        if isinstance(xGal, G_C) and isinstance(yGal, G_C):
+        if isinstance(xGal, Fld) and isinstance(yGal, Fld):
             return xGal * yGal % ρ
         if xGal == 0x00 or yGal == 0x00:
             return 0x00
-        if isinstance(yGal, G_C) and isinstance(xGal, G_V):
-            return G_V({k: v * yGal % ρ for k, v in xGal.data.items()})
-        if isinstance(xGal, G_C) and isinstance(yGal, G_V):
-            return G_V({k: v * xGal % ρ for k, v in yGal.data.items()})
+        if isinstance(yGal, Fld) and isinstance(xGal, Var):
+            return Var({k: v * yGal % ρ for k, v in xGal.data.items()})
+        if isinstance(xGal, Fld) and isinstance(yGal, Var):
+            return Var({k: v * xGal % ρ for k, v in yGal.data.items()})
         zGal = self.MKWIRE(lambda getw, args: getw(xGal) * getw(yGal) % ρ)
         self.MKGATE(xGal, yGal, zGal, msg=msg)
         return zGal
 
     def DIV(self, xGal: Gal, yGal: Gal, *, msg="division error") -> Gal:
         # Division in the finite field GF(P).
-        if isinstance(xGal, G_C) and isinstance(yGal, G_C):
+        if isinstance(xGal, Fld) and isinstance(yGal, Fld):
             return xGal * pow(yGal, -1, ρ) % ρ
         if xGal == 0x00:
             return 0x00
-        if isinstance(yGal, G_C) and isinstance(xGal, G_V):
-            return G_V({k: v * pow(yGal, -1, ρ) % ρ for k, v in xGal.data.items()})
+        if isinstance(yGal, Fld) and isinstance(xGal, Var):
+            return Var({k: v * pow(yGal, -1, ρ) % ρ for k, v in xGal.data.items()})
         zGal = self.MKWIRE(lambda getw, args: getw(xGal) * pow(getw(yGal), -1, ρ) % ρ)
         self.MKGATE(zGal, yGal, xGal, msg=msg)
         return zGal
@@ -155,14 +171,14 @@ class Circuit:
         return rGal
 
     def SUM(self, iLst: Iterable[Gal], rGal: Gal = 0x00) -> Gal:
-        rGal = G_V({0: rGal}) if isinstance(rGal, G_C) else G_V(rGal.data.copy())
+        rGal = Var({0: rGal}) if isinstance(rGal, Fld) else Var(rGal.data.copy())
         for iGal in iLst:
-            if isinstance(iGal, G_C):
+            if isinstance(iGal, Fld):
                 rGal.data[0] = rGal.data.get(0, 0x00) + iGal
             else:
                 for k, v in iGal.data.items():
                     rGal.data[k] = rGal.data.get(k, 0x00) + v
-        rGal = G_V({k: t for k, v in rGal.data.items() if (t := v % ρ)})
+        rGal = Var({k: t for k, v in rGal.data.items() if (t := v % ρ)})
         return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
 
     # type conversion operations on variables
@@ -174,7 +190,7 @@ class Circuit:
         # binary representation of x will be non-unique.
         if not 0 <= xLen < ρ.bit_length():
             raise ValueError("invalid bit length")
-        if isinstance(xGal, G_C):
+        if isinstance(xGal, Fld):
             xBin = [xGal >> iLen & 0x01 for iLen in range(xLen)]
             assert sum(xBit * 0x02**iLen for iLen, xBit in enumerate(xBin)) == xGal, msg
             return xBin
@@ -192,7 +208,7 @@ class Circuit:
     def ENUM(self, xGal: Gal, kSet: Set, *, msg="enumerization error") -> Key:
         # Convert x to an enum value, for example, ENUM(3, {1, 3, 5}) will return {1: 0, 3: 1, 5: 0},
         # and ENUM(2, {1, 3, 5}) will raise an error because 2 is not in the set.
-        if isinstance(xGal, G_C):
+        if isinstance(xGal, Fld):
             xKey = {kInt: 0x01 if xGal == kInt else 0x00 for kInt in kSet}
             assert sum(xBit * kInt for kInt, xBit in xKey.items()) == xGal, msg
             return xKey
@@ -246,7 +262,7 @@ class Circuit:
             return self.GETBYBIN(lSpc, iBin, cBit)
         return self.IF(iBit, self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)), self.GETBYBIN(lSpc[:iLen], iBin))
 
-    def GETBYKEY(self, lSpc: dict[int, ANY], iKey: Key) -> ANY:
+    def GETBYKEY(self, lSpc: dict[Fld, ANY], iKey: Key) -> ANY:
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an
         # enum value. For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
         iItr = iter(iKey.items())
@@ -299,7 +315,7 @@ class Circuit:
 
     def NEZ(self, xGal: Gal, *, msg="booleanization error") -> Bit:
         # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
-        if isinstance(xGal, G_C):
+        if isinstance(xGal, Fld):
             return pow(xGal, ρ - 1, ρ)
         iGal = self.MKWIRE(lambda getw, args: pow(getw(xGal), ρ - 2, ρ))
         rBit = self.MKWIRE(lambda getw, args: pow(getw(xGal), ρ - 1, ρ))
@@ -381,9 +397,9 @@ class Circuit:
         lMap = {}
         rMap = {}
         for lLen, lGal in enumerate(lLst):
-            lMap.setdefault(lGal if isinstance(lGal, G_C) else tuple(sorted(lGal.data.items())), []).append(lLen)
+            lMap.setdefault(lGal if isinstance(lGal, Fld) else tuple(sorted(lGal.data.items())), []).append(lLen)
         for rLen, rGal in enumerate(rLst):
-            rMap.setdefault(rGal if isinstance(rGal, G_C) else tuple(sorted(rGal.data.items())), []).append(rLen)
+            rMap.setdefault(rGal if isinstance(rGal, Fld) else tuple(sorted(rGal.data.items())), []).append(rLen)
         lLst = lLst.copy()
         rLst = rLst.copy()
         for xGal in set(lMap) & set(rMap):
@@ -460,7 +476,7 @@ class Circuit:
             return [0x00] * qLen, [0x00] * rLen
         if yGal == 0x00:
             raise ZeroDivisionError
-        if isinstance(xGal, G_C) and isinstance(yGal, G_C):
+        if isinstance(xGal, Fld) and isinstance(yGal, Fld):
             qGal, rGal = divmod(xGal, yGal)
             return [qGal >> iLen & 0x01 for iLen in range(qLen)], [rGal >> iLen & 0x01 for iLen in range(rLen)]
         qGal = self.MKWIRE(lambda getw, args: getw(xGal) // getw(yGal))
