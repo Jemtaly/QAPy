@@ -2,9 +2,9 @@
 
 import time
 
-from circuit import Witness
-from compiler import Compiler
-import groth16
+from . import groth16
+from .circuit import Witness
+from .compiler import Compiler
 
 
 class Timer:

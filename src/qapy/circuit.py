@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, TypeVar
 
-import waksman
-
 from pymcl import r as ρ
+
+from . import waksman
 
 
 Fld = int

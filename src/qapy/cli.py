@@ -5,9 +5,9 @@ import dill
 
 from pymcl import G1, G2, g1, g2, r as ρ
 
-from circuit import Witness
-from compiler import Compiler
-import groth16
+from . import groth16
+from .circuit import Witness
+from .compiler import Compiler
 
 
 L0 = ((ρ - 1).bit_length() + 7) // 8

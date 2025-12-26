@@ -3,7 +3,7 @@ from typing import TypeGuard, Literal
 
 from pymcl import r as ρ
 
-from circuit import Circuit, Bin, Gal, Fld, Var, Any, Set
+from .circuit import Circuit, Bin, Gal, Fld, Var, Any, Set
 
 
 # check the type of a value

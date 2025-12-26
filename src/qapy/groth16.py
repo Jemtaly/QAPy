@@ -2,11 +2,10 @@ import multiprocessing
 import random
 from typing import TypeVar, Iterable
 
-import fft
-
 from pymcl import Fr, G1, G2, pairing, g1, g2, r as ρ
 
-from circuit import Witness, Gate, Fld
+from . import fft
+from .circuit import Witness, Gate, Fld
 
 
 Gn = TypeVar("Gn", G1, G2)

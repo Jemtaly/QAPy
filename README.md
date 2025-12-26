@@ -10,12 +10,18 @@ A QAP compiler implemented in Python, used to compile the codes written in a Pyt
 
 ## Usage
 
-QAPy provides a command-line tool, `main.py`, for compiling programs and performing Groth16 parameter setup, proof generation, and verification steps. The following is a brief introduction to the usage of the tool.
+QAPy provides a command-line tool for compiling programs and performing Groth16 parameter setup, proof generation, and verification steps. The following is a brief introduction to the usage of the tool.
+
+```sh
+git clone https://github.com/Jemtaly/QAPy
+cd QAPy/src
+python -m qapy -h
+```
 
 ### Compile
 
 ```text
-usage: main.py compile [-h] [-g GATES] [-f FUNCS] [-n NAMES] program
+usage: python -m qapy compile [-h] [-g GATES] [-f FUNCS] [-n NAMES] program
 
 Compile a program and write the constraints, witness generation functions, and public entry names to files.
 
@@ -32,7 +38,7 @@ options:
 ### Setup
 
 ```text
-usage: main.py setup [-h] [-g GATES] [-p PROVE] [-v VERIF]
+usage: python -m qapy setup [-h] [-g GATES] [-p PROVE] [-v VERIF]
 
 Set up the parameters for proving and verifying and write them to files.
 
@@ -46,7 +52,7 @@ options:
 ### Prove
 
 ```text
-usage: main.py prove [-h] [-g GATES] [-f FUNCS] [-p PROVE] [-a [ARGS ...]] [-P PROOF]
+usage: python -m qapy prove [-h] [-g GATES] [-f FUNCS] [-p PROVE] [-a [ARGS ...]] [-P PROOF]
 
 Generate a proof and write it to a file.
 
@@ -63,7 +69,7 @@ options:
 ### Verify
 
 ```text
-usage: main.py verify [-h] [-n NAMES] [-v VERIF] [-P PROOF]
+usage: python -m qapy verify [-h] [-n NAMES] [-v VERIF] [-P PROOF]
 
 Verify a proof.
 
@@ -78,19 +84,19 @@ There are several sample codes in the `examples` directory. Take `examples/sha25
 
 ```bash
 # Compile the program
-./main.py compile examples/sha256.qapy -g sha256.gates -f sha256.funcs -n sha256.names
+python -m qapy compile examples/sha256.qapy -g sha256.gates -f sha256.funcs -n sha256.names
 
 # Setup the parameters
-./main.py setup -g sha256.gates -p sha256.prove -v sha256.verif
+python -m qapy setup -g sha256.gates -p sha256.prove -v sha256.verif
 
 # Generate the proof (take the padded message "abc" as input)
-./main.py prove -g sha256.gates -f sha256.funcs -p sha256.prove -a \
+python -m qapy prove -g sha256.gates -f sha256.funcs -p sha256.prove -a \
     W[0]=0x61626380 W[1]=0 W[2]=0 W[3]=0 W[4]=0 W[5]=0 W[6]=0 W[7]=0 \
     W[8]=0 W[9]=0 W[10]=0 W[11]=0 W[12]=0 W[13]=0 W[14]=0 W[15]=24 \
     -P sha256.proof
 
 # Verify the proof
-./main.py verify -n sha256.names -v sha256.verif -P sha256.proof
+python -m qapy verify -n sha256.names -v sha256.verif -P sha256.proof
 ```
 
 ## Copyright Notice
