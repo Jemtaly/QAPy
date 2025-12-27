@@ -14,14 +14,15 @@ QAPy provides a command-line tool for compiling programs and performing Groth16 
 
 ```sh
 git clone https://github.com/Jemtaly/QAPy
-cd QAPy/src
-python -m qapy -h
+cd QAPy
+pip install -e .
+qapy-test
 ```
 
 ### Compile
 
 ```text
-usage: python -m qapy compile [-h] [-g GATES] [-f FUNCS] [-n NAMES] program
+usage: qapy compile [-h] [-g GATES] [-f FUNCS] [-n NAMES] program
 
 Compile a program and write the constraints, witness generation functions, and public entry names to files.
 
@@ -38,7 +39,7 @@ options:
 ### Setup
 
 ```text
-usage: python -m qapy setup [-h] [-g GATES] [-p PROVE] [-v VERIF]
+usage: qapy setup [-h] [-g GATES] [-p PROVE] [-v VERIF]
 
 Set up the parameters for proving and verifying and write them to files.
 
@@ -52,7 +53,7 @@ options:
 ### Prove
 
 ```text
-usage: python -m qapy prove [-h] [-g GATES] [-f FUNCS] [-p PROVE] [-a [ARGS ...]] [-P PROOF]
+usage: qapy prove [-h] [-g GATES] [-f FUNCS] [-p PROVE] [-a [ARGS ...]] [-P PROOF]
 
 Generate a proof and write it to a file.
 
@@ -69,7 +70,7 @@ options:
 ### Verify
 
 ```text
-usage: python -m qapy verify [-h] [-n NAMES] [-v VERIF] [-P PROOF]
+usage: qapy verify [-h] [-n NAMES] [-v VERIF] [-P PROOF]
 
 Verify a proof.
 
@@ -84,19 +85,19 @@ There are several sample codes in the `examples` directory. Take `examples/sha25
 
 ```bash
 # Compile the program
-python -m qapy compile examples/sha256.qapy -g sha256.gates -f sha256.funcs -n sha256.names
+qapy compile examples/sha256.qapy -g sha256.gates -f sha256.funcs -n sha256.names
 
 # Setup the parameters
-python -m qapy setup -g sha256.gates -p sha256.prove -v sha256.verif
+qapy setup -g sha256.gates -p sha256.prove -v sha256.verif
 
 # Generate the proof (take the padded message "abc" as input)
-python -m qapy prove -g sha256.gates -f sha256.funcs -p sha256.prove -a \
+qapy prove -g sha256.gates -f sha256.funcs -p sha256.prove -a \
     W[0]=0x61626380 W[1]=0 W[2]=0 W[3]=0 W[4]=0 W[5]=0 W[6]=0 W[7]=0 \
     W[8]=0 W[9]=0 W[10]=0 W[11]=0 W[12]=0 W[13]=0 W[14]=0 W[15]=24 \
     -P sha256.proof
 
 # Verify the proof
-python -m qapy verify -n sha256.names -v sha256.verif -P sha256.proof
+qapy verify -n sha256.names -v sha256.verif -P sha256.proof
 ```
 
 ## Copyright Notice
