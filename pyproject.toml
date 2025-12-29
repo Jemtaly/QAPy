@@ -14,7 +14,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "dill>=0.4.0",
-  "pymcl @ git+https://github.com/Jemtaly/pymcl.git@main",
+  "pymcl @ git+https://github.com/Jemtaly/pymcl.git@v1.0.0",
 ]
 
 [project.scripts]
