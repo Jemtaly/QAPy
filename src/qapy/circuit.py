@@ -21,14 +21,6 @@ class Var:
 
 
 Gal = Var | Fld
-Bit = Gal
-Bin = list[Bit]
-Key = dict[Fld, Bit]
-Any = Gal | list["Any"] | dict[Fld, "Any"] | tuple["Any", ...]
-Spc = Any | list["Spc"] | dict[Fld, "Spc"]
-ANY = TypeVar("ANY", bound=Any)
-SPC = TypeVar("SPC", bound=Spc)
-Set = frozenset[Fld] | range
 
 
 Gate = tuple[Gal, Gal, Gal, str]
@@ -52,6 +44,16 @@ class Witness:
 
     def apply(self, xGal: Gal) -> Fld:
         return sum(self.vec[m] * a for m, a in ([(0, xGal)] if isinstance(xGal, int) else xGal.data.items())) % ρ  # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
+
+
+Bit = Gal
+Bin = list[Bit]
+Key = dict[Fld, Bit]
+Any = Gal | list["Any"] | dict[Fld, "Any"] | tuple["Any", ...]
+Spc = Any | list["Spc"] | dict[Fld, "Spc"]
+ANY = TypeVar("ANY", bound=Any)
+SPC = TypeVar("SPC", bound=Spc)
+Set = frozenset[Fld] | range
 
 
 class Circuit:
@@ -118,7 +120,7 @@ class Circuit:
         self.ASSERT_EQZ(self.SUB(xGal, rGal), msg=msg)
         return rGal
 
-    # arithmetic operations on variables
+    # basic arithmetic operations on variables
 
     def ADD(self, xGal: Gal, yGal: Gal) -> Gal:
         if isinstance(xGal, Fld):
@@ -134,6 +136,17 @@ class Circuit:
         if isinstance(yGal, Fld):
             yGal = Var({0: yGal})
         rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
+        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
+
+    def SUM(self, iLst: Iterable[Gal], rGal: Gal = 0x00) -> Gal:
+        rGal = Var({0: rGal}) if isinstance(rGal, Fld) else Var(rGal.data.copy())
+        for iGal in iLst:
+            if isinstance(iGal, Fld):
+                rGal.data[0] = rGal.data.get(0, 0x00) + iGal
+            else:
+                for k, v in iGal.data.items():
+                    rGal.data[k] = rGal.data.get(k, 0x00) + v
+        rGal = Var({k: t for k, v in rGal.data.items() if (t := v % ρ)})
         return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
 
     def MUL(self, xGal: Gal, yGal: Gal, *, msg="multiplication error") -> Gal:
@@ -161,6 +174,8 @@ class Circuit:
         self.MKGATE(zGal, yGal, xGal, msg=msg)
         return zGal
 
+    # all other operations can be implemented using the above basic operations
+
     def POW(self, xGal: Gal, nBin: Bin) -> Gal:
         nBit, *nBin = nBin
         rGal = self.IF(nBit, xGal, 0x01)
@@ -169,17 +184,6 @@ class Circuit:
             kGal = self.IF(nBit, xGal, 0x01)
             rGal = self.MUL(rGal, kGal)
         return rGal
-
-    def SUM(self, iLst: Iterable[Gal], rGal: Gal = 0x00) -> Gal:
-        rGal = Var({0: rGal}) if isinstance(rGal, Fld) else Var(rGal.data.copy())
-        for iGal in iLst:
-            if isinstance(iGal, Fld):
-                rGal.data[0] = rGal.data.get(0, 0x00) + iGal
-            else:
-                for k, v in iGal.data.items():
-                    rGal.data[k] = rGal.data.get(k, 0x00) + v
-        rGal = Var({k: t for k, v in rGal.data.items() if (t := v % ρ)})
-        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
 
     # type conversion operations on variables
 
@@ -457,6 +461,12 @@ class Circuit:
         zBin = self.BINARY(self.ADD(self.GALOIS(xBin), self.ADD(self.GALOIS(self.SUB(0x01, bBit) for bBit in yBin), self.SUB(0x01, cBit))), bLen + 1)
         return zBin[:bLen], self.SUB(0x01, zBin[bLen])
 
+    def BINSUM(self, List: Iterable[Bin], cGal=0x00) -> Bin:  # c < len(List)
+        # BINSUM generates less constraints than BINADD/BINSUB when summing multiple binary lists.
+        # assert len(set(map(len, List))) == 1
+        bLen = max(map(len, List))
+        return self.BINARY(self.SUM(map(self.GALOIS, List), cGal), bLen + (len(List) - 1).bit_length())[:bLen]
+
     def BINMUL(self, xBin: Bin, yBin: Bin, cBin: Bin = [], dBin: Bin = []) -> tuple[Bin, Bin]:
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
@@ -496,12 +506,6 @@ class Circuit:
             kBin = self.IF(nBit, xBin, self.BINARY(0x01, bLen))
             rBin = self.BINMUL(rBin, kBin)[0]
         return rBin
-
-    def BINSUM(self, List: Iterable[Bin], cGal=0x00) -> Bin:  # c < len(List)
-        # BINSUM generates less constraints than BINADD when their are lots of binary numbers to add.
-        # assert len(set(map(len, List))) == 1
-        bLen = max(map(len, List))
-        return self.BINARY(self.SUM(map(self.GALOIS, List), cGal), bLen + (len(List) - 1).bit_length())[:bLen]
 
     # compare operations on binary lists
 
