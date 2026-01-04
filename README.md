@@ -88,16 +88,32 @@ There are several sample codes in the `examples` directory. Take `examples/sha25
 qapy compile examples/sha256.qapy -g sha256.gates -f sha256.funcs -n sha256.names
 
 # Setup the parameters
-qapy setup -g sha256.gates -p sha256.prove -v sha256.verif
+qapy setup -g sha256.gates -p sha256.pk -v sha256.vk
 
 # Generate the proof (take the padded message "abc" as input)
-qapy prove -g sha256.gates -f sha256.funcs -p sha256.prove -a \
+qapy prove -g sha256.gates -f sha256.funcs -p sha256.pk -a \
     W[0]=0x61626380 W[1]=0 W[2]=0 W[3]=0 W[4]=0 W[5]=0 W[6]=0 W[7]=0 \
     W[8]=0 W[9]=0 W[10]=0 W[11]=0 W[12]=0 W[13]=0 W[14]=0 W[15]=24 \
     -P sha256.proof
 
 # Verify the proof
-qapy verify -n sha256.names -v sha256.verif -P sha256.proof
+qapy verify -n sha256.names -v sha256.vk -P sha256.proof
+```
+
+No compilation mode:
+
+```bash
+# Setup the parameters
+qapy setup examples/sha256.qapy -p sha256.pk -v sha256.vk
+
+# Generate the proof (take the padded message "abc" as input)
+qapy prove examples/sha256.qapy -p sha256.pk -a \
+    W[0]=0x61626380 W[1]=0 W[2]=0 W[3]=0 W[4]=0 W[5]=0 W[6]=0 W[7]=0 \
+    W[8]=0 W[9]=0 W[10]=0 W[11]=0 W[12]=0 W[13]=0 W[14]=0 W[15]=24 \
+    -P sha256.proof
+
+# Verify the proof
+qapy verify examples/sha256.qapy -v sha256.vk -P sha256.proof
 ```
 
 ## Copyright Notice
