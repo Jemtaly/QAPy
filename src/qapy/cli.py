@@ -3,9 +3,9 @@ import dill
 
 from pymcl import r as ρ
 
-from .groth16 import PKey, VKey, Proof, setup, prove, verify
 from .circuit import Witness
 from .compiler import Compiler
+from .groth16 import PKey, VKey, Proof, setup, prove, verify
 
 
 class StoreKVPairs(argparse.Action):

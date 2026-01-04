@@ -2,9 +2,9 @@
 
 import time
 
-from . import groth16
 from .circuit import Witness
 from .compiler import Compiler
+from .groth16 import setup, prove, verify
 
 
 class Timer:
@@ -96,13 +96,13 @@ def main():
     print("Number of constraints:", len(gates))
     print("Number of public entries:", len(stmts))
     with Timer("Setting up QAP..."):
-        key = groth16.setup(wire_count, stmts, gates)
+        key = setup(wire_count, stmts, gates)
     with Timer("Generating proof..."):
         args = {"W[{}]".format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
         witness = Witness(funcs, args)
-        proof = groth16.prove(wire_count, stmts, gates, key.get_pk(), witness)
+        proof = prove(wire_count, stmts, gates, key.get_pk(), witness)
     with Timer("Verifying..."):
-        result = groth16.verify(names, key.get_vk(), proof)
+        result = verify(names, key.get_vk(), proof)
     if result.passed:
         print("Verification passed!")
         print("Public entries:", "{" + ", ".join(f"{k} = {u:#010x}" for k, u in result.values) + "}")
