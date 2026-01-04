@@ -87,20 +87,25 @@ def main():
             "for i in range(8):\n"
             "    reveal(fmt('V[{}]', i), V[i])\n"
         )
-    print("Dimension of the witness vector:", test.wire_count)
-    print("Number of constraints:", len(test.gates))
-    print("Number of public entries:", len(test.stmts))
+    wire_count = test.wire_count
+    gates = test.gates
+    stmts = test.stmts.keys()
+    names = test.stmts.values()
+    funcs = test.funcs
+    print("Dimension of the witness vector:", wire_count)
+    print("Number of constraints:", len(gates))
+    print("Number of public entries:", len(stmts))
     with Timer("Setting up QAP..."):
-        α1, β1, δ1, β2, γ2, δ2, u1U, v1V, x1I, x2I, y1I = groth16.setup(test.wire_count, test.stmts.keys(), test.gates)
+        key = groth16.setup(wire_count, stmts, gates)
     with Timer("Generating proof..."):
         args = {"W[{}]".format(i): v for i, v in enumerate([0x61626380] + [0x00000000] * 14 + [0x00000018])}
-        witness = Witness(test.funcs, args)
-        A1, B2, C1, uU = groth16.prove(test.wire_count, test.stmts.keys(), test.gates, α1, β1, δ1, β2, δ2, v1V, x1I, x2I, y1I, witness)
+        witness = Witness(funcs, args)
+        proof = groth16.prove(wire_count, stmts, gates, key.get_pk(), witness)
     with Timer("Verifying..."):
-        passed, outs = groth16.verify(test.stmts.values(), α1, β2, γ2, δ2, u1U, A1, B2, C1, uU)
-    if passed:
+        result = groth16.verify(names, key.get_vk(), proof)
+    if result.passed:
         print("Verification passed!")
-        print("Public entries:", "{{{}}}".format(", ".join("{} = {:#010x}".format(k, u) for k, u in outs)))
+        print("Public entries:", "{" + ", ".join(f"{k} = {u:#010x}" for k, u in result.values) + "}")
     else:
         print("Verification failed!")
 
