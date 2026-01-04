@@ -29,13 +29,13 @@ def main():
     parser_compile.add_argument("-n", "--names", type=str, default=None, help="path to write the public entry names to (default: a.names)")
 
     parser_setup = subparsers.add_parser("setup", help="set up the parameters", description="Set up the parameters for proving and verifying and write them to files.")
-    parser_setup.add_argument("file", type=str, required=False, help="path to the source code")
+    parser_setup.add_argument("file", type=str, nargs="?", help="path to the source code")
     parser_setup.add_argument("-g", "--gates", type=str, default=None, help="path to read the constraints from (default: a.gates)")
     parser_setup.add_argument("-p", "--pk", type=str, default="a.pk", help="path to write the parameters for proving to (default: a.pk)")
     parser_setup.add_argument("-v", "--vk", type=str, default="a.vk", help="path to write the parameters for verifying to (default: a.vk)")
 
     parser_prove = subparsers.add_parser("prove", help="generate a proof", description="Generate a proof and write it to a file")
-    parser_prove.add_argument("file", type=str, required=False, help="path to the source code")
+    parser_prove.add_argument("file", type=str, nargs="?", help="path to the source code")
     parser_prove.add_argument("-g", "--gates", type=str, default=None, help="path to read the constraints from (default: a.gates)")
     parser_prove.add_argument("-f", "--funcs", type=str, default=None, help="path to read the witness generation functions from (default: a.funcs)")
     parser_prove.add_argument("-p", "--pk", type=str, default="a.pk", help="path to read the parameters for proving from (default: a.pk)")
@@ -43,7 +43,7 @@ def main():
     parser_prove.add_argument("-P", "--proof", type=str, default="a.proof", help="path to write the proof to (default: a.proof)")
 
     parser_verify = subparsers.add_parser("verify", help="verify a proof", description="Verify a proof")
-    parser_verify.add_argument("file", type=str, required=False, help="path to the source code")
+    parser_verify.add_argument("file", type=str, nargs="?", help="path to the source code")
     parser_verify.add_argument("-n", "--names", type=str, default=None, help="path to read the public entry names from (default: a.names)")
     parser_verify.add_argument("-v", "--vk", type=str, default="a.vk", help="path to read the parameters for verifying from (default: a.vk)")
     parser_verify.add_argument("-P", "--proof", type=str, default="a.proof", help="path to read the proof from (default: a.proof)")
@@ -144,7 +144,7 @@ def main():
             proof.dumps(proof_file)
 
     elif args.command == "verify":
-        if args.names is not None:
+        if args.file is not None:
             compiler = Compiler()
             with open(args.file, "r") as file:
                 print("Compiling the source code...")
