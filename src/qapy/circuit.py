@@ -43,7 +43,7 @@ class Witness:
                 self.vec.extend(res)
 
     def apply(self, xGal: Gal) -> Fld:
-        return sum(self.vec[m] * a for m, a in ([(0, xGal)] if isinstance(xGal, int) else xGal.data.items())) % ρ  # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
+        return xGal if isinstance(xGal, Fld) else sum(self.vec[m] * a for m, a in xGal.data.items()) % ρ  # <w, t> = Σₘ₌₀ᴹ⁻¹ wₘtₘ
 
 
 Bit = Gal
@@ -71,10 +71,10 @@ class Circuit:
         self.wire_count = 0
         self.funcs = []
         self.stmts = {}
-        # add a constant 1 to the witness vector
-        self.MKWIRE(lambda getw, args: 0x01, "ONE")
         self.gates = []
         self.enums = {}
+        # add a constant 1 to the witness vector
+        [self.one] = self.MKWIRE(lambda getw, args: 0x01, "ONE").data
 
     def MKWIRE(self, func: S_Fn, name: str | None = None) -> Var:
         # Add a new entry defined by the given function to the witness vector.
@@ -124,30 +124,30 @@ class Circuit:
 
     def ADD(self, xGal: Gal, yGal: Gal) -> Gal:
         if isinstance(xGal, Fld):
-            xGal = Var({0: xGal})
+            xGal = Var({self.one: xGal})
         if isinstance(yGal, Fld):
-            yGal = Var({0: yGal})
+            yGal = Var({self.one: yGal})
         rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) + yGal.data.get(k, 0x00)) % ρ)})
-        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
+        return rGal.data.get(self.one, 0x00) if rGal.data.keys() <= {self.one} else rGal
 
     def SUB(self, xGal: Gal, yGal: Gal) -> Gal:
         if isinstance(xGal, Fld):
-            xGal = Var({0: xGal})
+            xGal = Var({self.one: xGal})
         if isinstance(yGal, Fld):
-            yGal = Var({0: yGal})
+            yGal = Var({self.one: yGal})
         rGal = Var({k: v for k in xGal.data.keys() | yGal.data.keys() if (v := (xGal.data.get(k, 0x00) - yGal.data.get(k, 0x00)) % ρ)})
-        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
+        return rGal.data.get(self.one, 0x00) if rGal.data.keys() <= {self.one} else rGal
 
     def SUM(self, iLst: Iterable[Gal], rGal: Gal = 0x00) -> Gal:
-        rGal = Var({0: rGal}) if isinstance(rGal, Fld) else Var(rGal.data.copy())
+        rGal = Var({self.one: rGal}) if isinstance(rGal, Fld) else Var(rGal.data.copy())
         for iGal in iLst:
             if isinstance(iGal, Fld):
-                rGal.data[0] = rGal.data.get(0, 0x00) + iGal
+                rGal.data[self.one] = rGal.data.get(self.one, 0x00) + iGal
             else:
                 for k, v in iGal.data.items():
                     rGal.data[k] = rGal.data.get(k, 0x00) + v
         rGal = Var({k: t for k, v in rGal.data.items() if (t := v % ρ)})
-        return rGal.data.get(0, 0x00) if rGal.data.keys() <= {0} else rGal
+        return rGal.data.get(self.one, 0x00) if rGal.data.keys() <= {self.one} else rGal
 
     def MUL(self, xGal: Gal, yGal: Gal, *, msg="multiplication error") -> Gal:
         if isinstance(xGal, Fld) and isinstance(yGal, Fld):
@@ -353,7 +353,7 @@ class Circuit:
 
     def ASSERT_IS_PERM_IMPL(self, lLst: list[Gal], rLst: list[Gal], *, msg="IS_PERM assertion failed") -> None:
         # Assert that the two lists are permutations of each other using the Waksman network.
-        nLen = len(lLst)
+        nLen = max(len(lLst), len(rLst))
         if nLen == 0:
             return
         if nLen == 1:
@@ -398,12 +398,12 @@ class Circuit:
 
     def ASSERT_IS_PERM(self, lLst: list[Gal], rLst: list[Gal], *, msg="IS_PERM assertion failed") -> None:
         # Optimize the IS_PERM assertion by removing the common elements in the two lists before the assertion.
-        lMap = {}
-        rMap = {}
+        lMap: dict[tuple[tuple[int, Gal], ...], list[int]] = {}
+        rMap: dict[tuple[tuple[int, Gal], ...], list[int]] = {}
         for lLen, lGal in enumerate(lLst):
-            lMap.setdefault(lGal if isinstance(lGal, Fld) else tuple(sorted(lGal.data.items())), []).append(lLen)
+            lMap.setdefault(tuple(sorted((Var({self.one: lGal}) if isinstance(lGal, Fld) else lGal).data.items())), []).append(lLen)
         for rLen, rGal in enumerate(rLst):
-            rMap.setdefault(rGal if isinstance(rGal, Fld) else tuple(sorted(rGal.data.items())), []).append(rLen)
+            rMap.setdefault(tuple(sorted((Var({self.one: rGal}) if isinstance(rGal, Fld) else rGal).data.items())), []).append(rLen)
         lLst = lLst.copy()
         rLst = rLst.copy()
         for xGal in set(lMap) & set(rMap):
