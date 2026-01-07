@@ -2,7 +2,7 @@
 
 import time
 
-from .circuit import Witness
+from .types import Witness
 from .compiler import Compiler
 from .groth16 import setup, prove, verify
 

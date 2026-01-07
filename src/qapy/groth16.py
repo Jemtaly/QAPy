@@ -6,7 +6,7 @@ from typing import TypeVar, Iterable, BinaryIO
 from pymcl import Fr, G1, G2, pairing, g1, g2, r as ρ
 
 from . import fft
-from .circuit import Witness, Gate, Fld
+from .types import Witness, Gate, Fld
 
 
 Gn = TypeVar("Gn", G1, G2)

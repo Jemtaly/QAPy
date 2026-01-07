@@ -3,7 +3,7 @@ import dill
 
 from pymcl import r as ρ
 
-from .circuit import Witness
+from .types import Witness
 from .compiler import Compiler
 from .groth16 import PKey, VKey, Proof, setup, prove, verify
 
