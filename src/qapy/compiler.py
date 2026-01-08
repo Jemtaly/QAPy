@@ -1,49 +1,60 @@
 import ast
-from typing import TypeGuard, Literal
+from typing import TypeGuard, Literal, Protocol, TypeVar, Iterable
 
 from pymcl import r as ρ
 
-from .types import Fld, Var, Gal
-from .circuit import Circuit, Bin, Any, Set
+from .types import Fld, Var, Gal, Getw, Args
+from .circuit import Circuit, Bin, Set, Dat
+
+
+T = TypeVar("T")
+
+
+class Callable(Protocol[T]):
+    def __call__(self, *args: T) -> T: ...
+
+
+All = Dat | Set | str | None | tuple["All", ...] | Callable["All"]
+Tag = tuple[Literal["continue"], None] | tuple[Literal["break"], None] | tuple[Literal["return"], All] | tuple[None, None]
 
 
 # check the type of a value
 
-def isgal(x) -> TypeGuard[Gal]:
+def isgal(x: All) -> TypeGuard[Gal]:
     return isinstance(x, Fld | Var)
 
 
-def isbin(x) -> TypeGuard[Bin]:
+def isbin(x: All) -> TypeGuard[Bin]:
     return isinstance(x, list) and all(isinstance(b, Fld | Var) for b in x)
 
 
 # assert the type of a value
 
-def asgal(x) -> Gal:
+def asgal(x: All) -> Gal:
     if isinstance(x, Fld | Var):
         return x
     raise TypeError("expected a field element")
 
 
-def asbin(x) -> Bin:
+def asbin(x: All) -> Bin:
     if isinstance(x, list) and all(isinstance(b, Fld | Var) for b in x):
         return x
     raise TypeError("expected a binary value")
 
 
-def aslof(x) -> list[Gal]:
+def aslof(x: All) -> list[Gal]:
     if isinstance(x, list) and all(isinstance(v, Fld | Var) for v in x):
         return x
     raise TypeError("expected a list of field elements")
 
 
-def asstr(x) -> str:
+def asstr(x: All) -> str:
     if isinstance(x, str):
         return x
     raise TypeError("expected a string")
 
 
-def asint(x, sgn=True, nat=False) -> Fld:
+def asint(x: All, sgn: bool = True, nat: bool = False) -> Fld:
     if isinstance(x, int) and (not sgn or (x := (x + (ρ - 1) // 2) % ρ - (ρ - 1) // 2) >= 0 or not nat):
         return x
     raise TypeError("expected a {} constant field element".format("non-negative" if nat else "signed" if sgn else "unsigned"))
@@ -52,20 +63,20 @@ def asint(x, sgn=True, nat=False) -> Fld:
 # get the shape of a value (binary value will be treated as a list of field elements)
 
 
-Shape = tuple[Literal["gal"], None] | tuple[Literal["any"], None] | tuple[Literal["tup"], tuple["Shape", ...]] | tuple[Set, "Shape"]
+RecursiveShape = tuple[Literal["gal"], None] | tuple[Literal["any"], None] | tuple[Literal["tup"], tuple["RecursiveShape", ...]] | tuple[Set, "RecursiveShape"]
 
 
-def shape(x: Any) -> Shape:
+def recursive_shape(x: All) -> RecursiveShape:
     if isinstance(x, Fld | Var):
         return "gal", None
     if isinstance(x, tuple):
-        return "tup", tuple(shape(v) for v in x)
+        return "tup", tuple(recursive_shape(v) for v in x)
     if isinstance(x, list):
-        shapes = {shape(v) for v in x}
+        shapes = {recursive_shape(v) for v in x}
         assert len(shapes) <= 1
         return range(len(x)), shapes.pop() if shapes else ("any", None)
     if isinstance(x, dict):
-        shapes = {shape(v) for v in x.values()}
+        shapes = {recursive_shape(v) for v in x.values()}
         assert len(shapes) <= 1
         return frozenset(x), shapes.pop() if shapes else ("any", None)
     raise TypeError("unsupported data type")
@@ -73,7 +84,8 @@ def shape(x: Any) -> Shape:
 
 # built-in functions
 
-def xxzip(fst, *args):
+
+def xxzip(fst: All, *args: All) -> All:
     if isinstance(fst, list):
         if not all(isinstance(arg, list) and range(len(fst)) == range(len(arg)) for arg in args):
             raise TypeError("inconsistent shape of zipped arguments")
@@ -85,8 +97,8 @@ def xxzip(fst, *args):
     raise TypeError("only lists and dicts are supported for zipping")
 
 
-def xxcon(*args):
-    shapes = [shape(arg) for arg in args]
+def xxcon(*args: All) -> All:
+    shapes = [recursive_shape(arg) for arg in args]
     if not all(isinstance(keys, range) for keys, inner in shapes):
         raise TypeError("only lists are supported for concatenation")
     if len({inner for keys, inner in shapes if inner != ("any", None)}) > 1:
@@ -94,13 +106,13 @@ def xxcon(*args):
     return sum(args, [])
 
 
-def xxrep(arg, n):
+def xxrep(arg: All, n: All) -> All:
     if isinstance(arg, list):
         return arg * asint(n, nat=True)
     raise TypeError("only lists are supported for repetition")
 
 
-def xxslc(arg, i, j):
+def xxslc(arg: All, i: All, j: All) -> All:
     if isinstance(arg, list):
         i = asint(i) % len(arg)
         j = asint(j) % len(arg)
@@ -108,13 +120,13 @@ def xxslc(arg, i, j):
     raise TypeError("only lists are supported for slicing")
 
 
-def xxrev(arg):
+def xxrev(arg: All) -> All:
     if isinstance(arg, list):
         return arg[::-1]
     raise TypeError("only lists are supported for reversing")
 
 
-def xxlen(arg):
+def xxlen(arg: All) -> All:
     if isinstance(arg, list):
         return len(arg)
     raise TypeError("only lists are supported for getting length")
@@ -126,7 +138,7 @@ class Program(Circuit, ast.NodeVisitor):
 
     def __init__(self):
         Circuit.__init__(self)
-        self.stack = [
+        self.stack: list[dict[str, All]] = [
             {
                 "zip": xxzip,
                 "concat": xxcon,
@@ -159,7 +171,7 @@ class Program(Circuit, ast.NodeVisitor):
             }
         ]  # the stack is used to store the local variables
 
-    def visit(self, node):
+    def visit(self, node: ast.AST):
         method = "visit_" + node.__class__.__name__
         visitor = getattr(self, method, self.generic_visit)
         try:
@@ -172,43 +184,49 @@ class Program(Circuit, ast.NodeVisitor):
             e.with_traceback(None)
             raise
 
-    def generic_visit(self, node):
+    def visit_expr(self, node: ast.expr) -> All:
+        return self.visit(node)
+
+    def visit_stmt(self, node: ast.stmt) -> Tag:
+        return self.visit(node)
+
+    def generic_visit(self, node: ast.AST):
         raise SyntaxError("unsupported syntax")
 
-    def visit_Constant(self, node):
+    def visit_Constant(self, node: ast.Constant) -> All:
         if isinstance(node.value, int):
             return node.value % ρ
         if isinstance(node.value, str):
             return node.value
         raise SyntaxError("invalid constant")
 
-    def visit_Expr(self, node):
-        self.visit(node.value)
+    def visit_Expr(self, node: ast.Expr) -> Tag:
+        self.visit_expr(node.value)
         return None, None
 
-    def visit_Pass(self, node):
+    def visit_Pass(self, node: ast.Pass) -> Tag:
         return None, None
 
-    def visit_Continue(self, node):
+    def visit_Continue(self, node: ast.Continue) -> Tag:
         return "continue", None
 
-    def visit_Break(self, node):
+    def visit_Break(self, node: ast.Break) -> Tag:
         return "break", None
 
-    def visit_Return(self, node):
-        return "return", self.visit(node.value) if node.value else None
+    def visit_Return(self, node: ast.Return) -> Tag:
+        return "return", self.visit_expr(node.value) if node.value else None
 
-    def visit_FunctionDef(self, node):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> Tag:
         func_stack = self.stack
 
-        def func(*args):
+        def func(*args: All) -> All:
             if len(args) != len(node.args.args):
                 raise TypeError("mismatched number of arguments")
             call_stack = self.stack
             try:
                 self.stack = func_stack + [{target.arg: arg for target, arg in zip(node.args.args, args)}]
                 for stmt in node.body:
-                    flag, result = self.visit(stmt)
+                    flag, result = self.visit_stmt(stmt)
                     if flag == "break" or flag == "continue":
                         raise SyntaxError("unexpected {}".format(flag))
                     if flag == "return":
@@ -222,28 +240,28 @@ class Program(Circuit, ast.NodeVisitor):
         self.stack[-1][node.name] = func
         return None, None
 
-    def visit_Lambda(self, node):
+    def visit_Lambda(self, node: ast.Lambda) -> All:
         func_stack = self.stack
 
-        def func(*args):
+        def func(*args: All) -> All:
             if len(args) != len(node.args.args):
                 raise TypeError("mismatched number of arguments")
             call_stack = self.stack
             try:
                 self.stack = func_stack + [{target.arg: arg for target, arg in zip(node.args.args, args)}]
-                result = self.visit(node.body)
+                result = self.visit_expr(node.body)
             finally:
                 self.stack = call_stack
             return result
 
         return func
 
-    def visit_Call(self, node):
-        func = self.visit(node.func)
-        args = [self.visit(arg) for arg in node.args]
+    def visit_Call(self, node: ast.Call) -> All:
+        func = self.visit_expr(node.func)
+        args = [self.visit_expr(arg) for arg in node.args]
         return func(*args)
 
-    def assign(self, target, value):
+    def assign(self, target: ast.expr, value: All):
         if isinstance(target, ast.Tuple):
             if not isinstance(value, tuple) or len(target.elts) != len(value):
                 raise TypeError("mismatched number of targets and values in assignment")
@@ -257,56 +275,56 @@ class Program(Circuit, ast.NodeVisitor):
         while not isinstance(target, ast.Name):
             if not isinstance(target, ast.Subscript):
                 raise SyntaxError("invalid assignment target")
-            slices.append(self.visit(target.slice))
+            slices.append(self.visit_expr(target.slice))
             target = target.value
-        dest = self.visit(target)
-        inner = shape(dest)
+        dest = self.visit_expr(target)
+        inner = recursive_shape(dest)
         enums = []
         for slice in reversed(slices):
             keys, inner = inner
             if not isinstance(keys, range | frozenset):
                 raise TypeError("invalid item assignment target")
             enums.append(self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
-        if tuple(inner) != shape(value):
+        if tuple(inner) != recursive_shape(value):
             raise TypeError("inconsistent shape of target and value in item assignment")
         self.stack[-1][target.id] = self.SETBYKEY(value, dest, *enums)
 
-    def visit_Assign(self, node):
-        value = self.visit(node.value)
+    def visit_Assign(self, node: ast.Assign) -> Tag:
+        value = self.visit_expr(node.value)
         for target in node.targets:
             self.assign(target, value)
         return None, None
 
-    def visit_Delete(self, node):
+    def visit_Delete(self, node: ast.Delete) -> Tag:
         for target in node.targets:
             if not isinstance(target, ast.Name):
                 raise SyntaxError("invalid deletion target")
             self.stack[-1].pop(target.id)
         return None, None
 
-    def visit_Name(self, node):
+    def visit_Name(self, node: ast.Name) -> All:
         for scope in reversed(self.stack):
             if node.id in scope:
                 return scope[node.id]
         raise NameError("undefined name: {}".format(node.id))
 
-    def visit_If(self, node):
-        if asint(self.visit(node.test)):
+    def visit_If(self, node: ast.If) -> Tag:
+        if asint(self.visit_expr(node.test)):
             for stmt in node.body:
-                flag, result = self.visit(stmt)
+                flag, result = self.visit_stmt(stmt)
                 if flag == "continue" or flag == "break" or flag == "return":
                     return flag, result
         else:
             for stmt in node.orelse:
-                flag, result = self.visit(stmt)
+                flag, result = self.visit_stmt(stmt)
                 if flag == "continue" or flag == "break" or flag == "return":
                     return flag, result
         return None, None
 
-    def visit_While(self, node):
-        while asint(self.visit(node.test)):
+    def visit_While(self, node: ast.While) -> Tag:
+        while asint(self.visit_expr(node.test)):
             for stmt in node.body:
-                flag, result = self.visit(stmt)
+                flag, result = self.visit_stmt(stmt)
                 if flag == "continue" or flag == "break" or flag == "return":
                     break
             else:
@@ -319,13 +337,13 @@ class Program(Circuit, ast.NodeVisitor):
                 return flag, result
         else:
             for stmt in node.orelse:
-                flag, result = self.visit(stmt)
+                flag, result = self.visit_stmt(stmt)
                 if flag == "continue" or flag == "break" or flag == "return":
                     return flag, result
         return None, None
 
-    def iterate_over(self, node):
-        iter = self.visit(node.iter)
+    def iterate_over(self, node: ast.comprehension):
+        iter = self.visit_expr(node.iter)
         if isinstance(iter, range | frozenset):
             items = iter
         elif isinstance(iter, dict):
@@ -338,10 +356,10 @@ class Program(Circuit, ast.NodeVisitor):
             self.assign(node.target, item)
             yield
 
-    def visit_For(self, node):
+    def visit_For(self, node: ast.For) -> Tag:
         for _ in self.iterate_over(node):
             for stmt in node.body:
-                flag, result = self.visit(stmt)
+                flag, result = self.visit_stmt(stmt)
                 if flag == "continue" or flag == "break" or flag == "return":
                     break
             else:
@@ -354,94 +372,94 @@ class Program(Circuit, ast.NodeVisitor):
                 return flag, result
         else:
             for stmt in node.orelse:
-                flag, result = self.visit(stmt)
+                flag, result = self.visit_stmt(stmt)
                 if flag == "continue" or flag == "break" or flag == "return":
                     return flag, result
         return None, None
 
-    def visit_ListComp(self, node):
-        def visit(generators):
+    def visit_ListComp(self, node: ast.ListComp) -> All:
+        def visit(generators: list[ast.comprehension]) -> Iterable[All]:
             if len(generators) == 0:
-                yield self.visit(node.elt)
+                yield self.visit_expr(node.elt)
                 return
             generator, *generators = generators
             call_stack = self.stack
             try:
                 self.stack = self.stack + [{}]
                 for _ in self.iterate_over(generator):
-                    if all(asint(self.visit(test)) for test in generator.ifs):
+                    if all(asint(self.visit_expr(test)) for test in generator.ifs):
                         yield from visit(generators)
             finally:
                 self.stack = call_stack
 
         res = list(visit(node.generators))
-        if len({shape(x) for x in res}) > 1:
+        if len({recursive_shape(x) for x in res}) > 1:
             raise TypeError("inconsistent shape of list elements")
         return res
 
-    def visit_DictComp(self, node):
-        def visit(generators):
+    def visit_DictComp(self, node: ast.DictComp) -> All:
+        def visit(generators: list[ast.comprehension]) -> Iterable[tuple[Fld, All]]:
             if len(generators) == 0:
-                yield asint(self.visit(node.key), sgn=False), self.visit(node.value)
+                yield asint(self.visit_expr(node.key), sgn=False), self.visit_expr(node.value)
                 return
             generator, *generators = generators
             call_stack = self.stack
             try:
                 self.stack = self.stack + [{}]
                 for _ in self.iterate_over(generator):
-                    if all(asint(self.visit(test)) for test in generator.ifs):
+                    if all(asint(self.visit_expr(test)) for test in generator.ifs):
                         yield from visit(generators)
             finally:
                 self.stack = call_stack
 
         res = dict(visit(node.generators))
-        if len({shape(x) for x in res.values()}) > 1:
+        if len({recursive_shape(x) for x in res.values()}) > 1:
             raise TypeError("inconsistent shape of dict values")
         return res
 
-    def visit_List(self, node):
-        res = list(self.visit(elt) for elt in node.elts)
-        if len({shape(x) for x in res}) > 1:
+    def visit_List(self, node: ast.List) -> All:
+        res = list(self.visit_expr(elt) for elt in node.elts)
+        if len({recursive_shape(x) for x in res}) > 1:
             raise TypeError("inconsistent shape of list elements")
         return res
 
-    def visit_Dict(self, node):
-        res = dict((asint(self.visit(key), sgn=False), self.visit(value)) for key, value in zip(node.keys, node.values))
-        if len({shape(x) for x in res.values()}) > 1:
+    def visit_Dict(self, node: ast.Dict) -> All:
+        res = dict((asint(self.visit_expr(key), sgn=False), self.visit_expr(value)) for key, value in zip(node.keys, node.values))
+        if len({recursive_shape(x) for x in res.values()}) > 1:
             raise TypeError("inconsistent shape of dict values")
         return res
 
-    def visit_Tuple(self, node):
-        return tuple(self.visit(elt) for elt in node.elts)
+    def visit_Tuple(self, node: ast.Tuple) -> All:
+        return tuple(self.visit_expr(elt) for elt in node.elts)
 
-    def visit_Subscript(self, node):
-        slice = self.visit(node.slice)
-        value = self.visit(node.value)
-        keys, inner = shape(value)
+    def visit_Subscript(self, node: ast.Subscript) -> All:
+        slice = self.visit_expr(node.slice)
+        value = self.visit_expr(node.value)
+        keys, inner = recursive_shape(value)
         if isinstance(keys, range):
             return self.GETBYBIN(value, slice if isbin(slice) else self.BINARY(asgal(slice), (len(value) - 1).bit_length()))
         if isinstance(keys, frozenset):
             return self.GETBYKEY(value, self.ENUM(self.GALOIS(slice) if isbin(slice) else asgal(slice), keys))
         raise TypeError("unsupported slicing")
 
-    def visit_Set(self, node):
+    def visit_Set(self, node: ast.Set) -> All:
         # this syntax is used for summing binary values
         # use * to represent negation (except for the first element)
         # e.g. {a, *b, c, *d, e} represents a - b + c - d + e
         elt, *elts = node.elts
         negs = 0x00
-        args = [asbin(self.visit(elt))]
+        args = [asbin(self.visit_expr(elt))]
         for elt in elts:
             if isinstance(elt, ast.Starred):
                 negs += 0x01
-                args.append(self.BITNOT(asbin(self.visit(elt.value))))
+                args.append(self.BITNOT(asbin(self.visit_expr(elt.value))))
             else:
-                args.append(asbin(self.visit(elt)))
+                args.append(asbin(self.visit_expr(elt)))
         return self.BINSUM(args, cGal=negs)
 
-    def visit_BinOp(self, node):
-        left = self.visit(node.left)
-        right = self.visit(node.right)
+    def visit_BinOp(self, node: ast.BinOp) -> All:
+        left = self.visit_expr(node.left)
+        right = self.visit_expr(node.right)
         if isinstance(node.op, ast.Add):
             return self.BINADD(left, right)[0] if isbin(left) and isbin(right) else self.ADD(asgal(left), asgal(right))
         if isinstance(node.op, ast.Sub):
@@ -468,8 +486,8 @@ class Program(Circuit, ast.NodeVisitor):
             return self.SHR(asbin(left), asint(right))
         raise SyntaxError("unsupported binary operation")
 
-    def visit_UnaryOp(self, node):
-        operand = self.visit(node.operand)
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> All:
+        operand = self.visit_expr(node.operand)
         if isinstance(node.op, ast.Invert):
             return self.BITNOT(asbin(operand))
         if isinstance(node.op, ast.Not):
@@ -480,23 +498,23 @@ class Program(Circuit, ast.NodeVisitor):
             return self.SUB(0x00, asgal(operand))
         raise SyntaxError("unsupported unary operation")
 
-    def visit_BoolOp(self, node):
+    def visit_BoolOp(self, node: ast.BoolOp) -> All:
         if isinstance(node.op, ast.And):
             result = 0x01
             for value in node.values:
-                result = self.AND(result, asgal(self.visit(value)))
+                result = self.AND(result, asgal(self.visit_expr(value)))
             return result
         if isinstance(node.op, ast.Or):
             result = 0x00
             for value in node.values:
-                result = self.OR(result, asgal(self.visit(value)))
+                result = self.OR(result, asgal(self.visit_expr(value)))
             return result
         raise SyntaxError("unsupported boolean operation")
 
-    def visit_Compare(self, node):
+    def visit_Compare(self, node: ast.Compare) -> All:
         result = 0x01
-        left = self.visit(node.left)
-        for op, right in zip(node.ops, map(self.visit, node.comparators)):
+        left = self.visit_expr(node.left)
+        for op, right in zip(node.ops, map(self.visit_expr, node.comparators)):
             if isinstance(op, ast.Eq):
                 result = self.AND(result, self.NOT(self.NEZ(self.SUB(self.GALOIS(left) if isbin(left) else asgal(left), self.GALOIS(right) if isbin(right) else asgal(right)))))
             elif isinstance(op, ast.NotEq):
@@ -514,12 +532,12 @@ class Program(Circuit, ast.NodeVisitor):
             left = right
         return result
 
-    def visit_IfExp(self, node):
-        left = self.visit(node.body)
-        right = self.visit(node.orelse)
-        if shape(left) != shape(right):
+    def visit_IfExp(self, node: ast.IfExp) -> All:
+        left = self.visit_expr(node.body)
+        right = self.visit_expr(node.orelse)
+        if recursive_shape(left) != recursive_shape(right):
             raise TypeError("inconsistent shape of left and right values in conditional expression")
-        return self.IF(asgal(self.visit(node.test)), left, right)
+        return self.IF(asgal(self.visit_expr(node.test)), left, right)
 
 
 class Compiler(Program):
@@ -533,16 +551,16 @@ class Compiler(Program):
             }
         )
 
-    def compile(self, code):
+    def compile(self, code: str):
         self.visit(ast.parse(code))
 
-    def visit_Module(self, node):
+    def visit_Module(self, node: ast.Module):
         for stmt in node.body:
-            flag, result = self.visit(stmt)
+            flag, result = self.visit_stmt(stmt)
             if flag == "continue" or flag == "break" or flag == "return":
                 raise SyntaxError("unexpected {}".format(flag))
 
-    def visit_With(self, node):
+    def visit_With(self, node: ast.With) -> Tag:
         if len(node.items) != 1:
             raise SyntaxError("invalid with statement")
         item = node.items[0]
@@ -556,7 +574,7 @@ class Compiler(Program):
         for elt in elts:
             if not isinstance(elt, ast.Name):
                 raise SyntaxError("invalid input target")
-            inputs[elt.id] = self.visit(elt)
+            inputs[elt.id] = self.visit_expr(elt)
         if vars is None:
             elts = []
         elif isinstance(vars, ast.Tuple):
@@ -571,15 +589,15 @@ class Compiler(Program):
             while not isinstance(elt, ast.Name):
                 if not isinstance(elt, ast.Subscript):
                     raise SyntaxError("invalid output target")
-                slice = self.visit(elt.slice)
+                slice = self.visit_expr(elt.slice)
                 slices.append(asint(slice, nat=True))
                 length *= slice
                 elt = elt.value
             outputs.append((slices, length, elt.id))
             lengths += length
 
-        def func(getw, args):
-            def eval(value):
+        def func(getw: Getw, args: Args) -> list[Fld]:
+            def eval(value: All) -> All:
                 if isinstance(value, Fld):
                     return value
                 if isinstance(value, Var):
@@ -596,7 +614,7 @@ class Compiler(Program):
             program.stack[-1]["param"] = lambda s: args[asstr(s)]
             program.stack[-1].update({id: eval(value) for id, value in inputs.items()})
             for stmt in node.body:
-                flag, result = program.visit(stmt)
+                flag, result = program.visit_stmt(stmt)
                 if flag == "break" or flag == "continue":
                     raise SyntaxError("unexpected {}".format(flag))
                 if flag == "return":

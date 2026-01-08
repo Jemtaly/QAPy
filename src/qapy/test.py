@@ -9,14 +9,14 @@ from .groth16 import setup, prove, verify
 
 class Timer:
     # This is used to measure the time of a block of code.
-    def __init__(self, text):
+    def __init__(self, text: str):
         self.text = text
 
     def __enter__(self):
         print(self.text, end=" ", flush=True)
         self.beg = time.time()
 
-    def __exit__(self, *info):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         self.end = time.time()
         print("{:.3f} sec".format(self.end - self.beg))
 

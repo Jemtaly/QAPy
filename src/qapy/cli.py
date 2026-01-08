@@ -9,7 +9,13 @@ from .groth16 import PKey, VKey, Proof, setup, prove, verify
 
 
 class StoreKVPairs(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: list[str],
+        option_string: str | None = None,
+    ):
         result = {}
         for value in values:
             k, _, v = value.rpartition("=")

@@ -9,9 +9,9 @@ from .types import Fld, Var, Gal, S_Fn, M_Fn, Gate, Func
 Bit = Gal
 Bin = list[Bit]
 Key = dict[Fld, Bit]
-Any = Gal | list["Any"] | dict[Fld, "Any"] | tuple["Any", ...]
-Spc = Any | list["Spc"] | dict[Fld, "Spc"]
-ANY = TypeVar("ANY", bound=Any)
+Dat = Gal | list["Dat"] | dict[Fld, "Dat"] | tuple["Dat", ...]
+Spc = Dat | list["Spc"] | dict[Fld, "Spc"]
+DAT = TypeVar("DAT", bound=Dat)
 SPC = TypeVar("SPC", bound=Spc)
 Set = frozenset[Fld] | range
 
@@ -26,6 +26,7 @@ class Circuit:
     stmts: dict[int, str]  # the public entries, keys are their indices in the witness vector, and values are their names
     gates: list[Gate]  # the constraints in the circuit, see the MKGATE method for details
     enums: dict[Set, dict[tuple[tuple[int, Fld], ...], Key]]  # memoization of the enum values
+    one: int  # the index of the constant 1 in the witness vector
 
     def __init__(self) -> None:
         self.wire_count = 0
@@ -57,7 +58,7 @@ class Circuit:
         self.wire_count += n
         return [Var({i + j: 0x01}) for j in range(n)]
 
-    def MKGATE(self, xGal: Gal, yGal: Gal, zGal: Gal, *, msg="assertion error") -> None:
+    def MKGATE(self, xGal: Gal, yGal: Gal, zGal: Gal, *, msg: str = "assertion error") -> None:
         # Add a constraint to the circuit, the constraint is represented as (x, y, z, msg), which means
         # x * y = z, msg is the error message when the constraint is not satisfied.
         if isinstance(xGal, Fld) or isinstance(yGal, Fld):
@@ -74,7 +75,7 @@ class Circuit:
         # ing to the key named name in the args dictionary at runtime.
         return self.MKWIRE(lambda getw, args: args[name] % ρ, name if public else None)
 
-    def REVEAL(self, name: str, xGal: Gal, *, msg="reveal error") -> Var:
+    def REVEAL(self, name: str, xGal: Gal, *, msg: str = "reveal error") -> Var:
         # Add a public entry to the witness vetor, whose value is equal to that of the given variable.
         rGal = self.MKWIRE(lambda getw, args: getw(xGal), name)
         self.ASSERT_EQZ(self.SUB(xGal, rGal), msg=msg)
@@ -109,7 +110,7 @@ class Circuit:
         rGal = Var({k: t for k, v in rGal.data.items() if (t := v % ρ)})
         return rGal.data.get(self.one, 0x00) if rGal.data.keys() <= {self.one} else rGal
 
-    def MUL(self, xGal: Gal, yGal: Gal, *, msg="multiplication error") -> Gal:
+    def MUL(self, xGal: Gal, yGal: Gal, *, msg: str = "multiplication error") -> Gal:
         if isinstance(xGal, Fld) and isinstance(yGal, Fld):
             return xGal * yGal % ρ
         if xGal == 0x00 or yGal == 0x00:
@@ -122,7 +123,7 @@ class Circuit:
         self.MKGATE(xGal, yGal, zGal, msg=msg)
         return zGal
 
-    def DIV(self, xGal: Gal, yGal: Gal, *, msg="division error") -> Gal:
+    def DIV(self, xGal: Gal, yGal: Gal, *, msg: str = "division error") -> Gal:
         # Division in the finite field GF(P).
         if isinstance(xGal, Fld) and isinstance(yGal, Fld):
             return xGal * pow(yGal, -1, ρ) % ρ
@@ -147,7 +148,7 @@ class Circuit:
 
     # type conversion operations on variables
 
-    def BINARY(self, xGal: Gal, xLen: int, *, msg="binarization error") -> Bin:
+    def BINARY(self, xGal: Gal, xLen: int, *, msg: str = "binarization error") -> Bin:
         # Convert x to a binary list with the given bit length, for example, BINARY(5, 3) will return
         # [1, 0, 1] and BINARY(5, 2) will raise an error because 5 is too large for 2 bits. Notice that
         # the bit length should be less than the bit length of the prime number P, since otherwise the
@@ -169,7 +170,7 @@ class Circuit:
         # Convert a binary list to a galios field element, for example, GALOIS([1, 0, 1]) will return 5.
         return self.SUM(self.MUL(bBit, 0x02**iLen) for iLen, bBit in enumerate(xBin))
 
-    def ENUM(self, xGal: Gal, kSet: Set, *, msg="enumerization error") -> Key:
+    def ENUM(self, xGal: Gal, kSet: Set, *, msg: str = "enumerization error") -> Key:
         # Convert x to an enum value, for example, ENUM(3, {1, 3, 5}) will return {1: 0, 3: 1, 5: 0},
         # and ENUM(2, {1, 3, 5}) will raise an error because 2 is not in the set.
         if isinstance(xGal, Fld):
@@ -192,7 +193,7 @@ class Circuit:
 
     # conditional expression and get/set operations on lists and dictionaries
 
-    def IF(self, bBit: Bit, tItm: ANY, fItm: ANY) -> ANY:
+    def IF(self, bBit: Bit, tItm: DAT, fItm: DAT) -> DAT:
         # Conditional expression, b is a boolean value, t and f are the true and false branches, which
         # can be scalars, (multi-dimensional) lists, dictionaries, or tuples, but should have the same
         # shape.
@@ -209,7 +210,7 @@ class Circuit:
             return tuple(self.IF(bBit, tItm[zInt], fItm[zInt]) for zInt in range(len(tItm)))
         return self.ADD(self.MUL(bBit, self.SUB(tItm, fItm)), fItm)
 
-    def GETBYBIN(self, lSpc: list[ANY], iBin: Bin, cBit: Bit = 0x01, *, msg="binary index out of range") -> ANY:
+    def GETBYBIN(self, lSpc: list[DAT], iBin: Bin, cBit: Bit = 0x01, *, msg: str = "binary index out of range") -> DAT:
         # Get the value of a (multi-dimensional) list by the given binary index.
         # For example, GETBYBIN([[1, 2], [3, 4], [5, 6]], [1, 0]) will return [5, 6]. The binary index
         # can be any length, but the value it represents should be less than the length of the list.
@@ -226,7 +227,7 @@ class Circuit:
             return self.GETBYBIN(lSpc, iBin, cBit)
         return self.IF(iBit, self.GETBYBIN(lSpc[iLen:], iBin, self.AND(cBit, iBit)), self.GETBYBIN(lSpc[:iLen], iBin))
 
-    def GETBYKEY(self, lSpc: dict[Fld, ANY], iKey: Key) -> ANY:
+    def GETBYKEY(self, lSpc: dict[Fld, DAT], iKey: Key) -> DAT:
         # Get the value of a (multi-dimensional) list or dictionary by the given key, key should be an
         # enum value. For example, GETBYKEY({2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}) will return [1, 2].
         iItr = iter(iKey.items())
@@ -236,7 +237,7 @@ class Circuit:
             vItm = self.IF(iBit, lSpc[kInt], vItm)
         return vItm
 
-    def SETBYKEY(self, vItm: ANY, lSpc: SPC, *iKes: Key, cBit: Bit = 0x01) -> SPC:
+    def SETBYKEY(self, vItm: DAT, lSpc: SPC, *iKes: Key, cBit: Bit = 0x01) -> SPC:
         # Set the value of a (multi-dimensional) list or dictionary by the given keys, it will return
         # a new (multi-dimensional) list or dictionary with the value set.
         # For example, SETBYKEY(5, {2: [1, 2], 3: [3, 4]}, {2: 1, 3: 0}, {0: 0, 1: 1}) means to set the
@@ -265,19 +266,19 @@ class Circuit:
 
     # compare operations on galios field elements
 
-    def GE(self, xGal: Gal, yGal: Gal, bLen: int, msg="GE compare failed") -> Bit:  # 0x00 <= xGal - yGal < 0x02 ** bLen
+    def GE(self, xGal: Gal, yGal: Gal, bLen: int, msg: str = "GE compare failed") -> Bit:  # 0x00 <= xGal - yGal < 0x02 ** bLen
         return self.BINARY(self.ADD(0x02**bLen, self.SUB(xGal, yGal)), bLen + 1, msg=msg)[bLen]
 
-    def LE(self, xGal: Gal, yGal: Gal, bLen: int, msg="LE compare failed") -> Bit:  # 0x00 <= yGal - xGal < 0x02 ** bLen
+    def LE(self, xGal: Gal, yGal: Gal, bLen: int, msg: str = "LE compare failed") -> Bit:  # 0x00 <= yGal - xGal < 0x02 ** bLen
         return self.BINARY(self.ADD(0x02**bLen, self.SUB(yGal, xGal)), bLen + 1, msg=msg)[bLen]
 
-    def GT(self, xGal: Gal, yGal: Gal, bLen: int, msg="GT compare failed") -> Bit:  # 0x00 < xGal - yGal <= 0x02 ** bLen
+    def GT(self, xGal: Gal, yGal: Gal, bLen: int, msg: str = "GT compare failed") -> Bit:  # 0x00 < xGal - yGal <= 0x02 ** bLen
         return self.BINARY(self.ADD(0x02**bLen, self.SUB(self.SUB(xGal, yGal), 0x01)), bLen + 1, msg=msg)[bLen]
 
-    def LT(self, xGal: Gal, yGal: Gal, bLen: int, msg="LT compare failed") -> Bit:  # 0x00 < yGal - xGal <= 0x02 ** bLen
+    def LT(self, xGal: Gal, yGal: Gal, bLen: int, msg: str = "LT compare failed") -> Bit:  # 0x00 < yGal - xGal <= 0x02 ** bLen
         return self.BINARY(self.ADD(0x02**bLen, self.SUB(self.SUB(yGal, xGal), 0x01)), bLen + 1, msg=msg)[bLen]
 
-    def NEZ(self, xGal: Gal, *, msg="booleanization error") -> Bit:
+    def NEZ(self, xGal: Gal, *, msg: str = "booleanization error") -> Bit:
         # Convert x to a boolean value, return 1 if x is non-zero and 0 if x is zero.
         if isinstance(xGal, Fld):
             return pow(xGal, ρ - 1, ρ)
@@ -289,29 +290,29 @@ class Circuit:
 
     # assertion operations on galios field elements
 
-    def ASSERT_GE(self, xGal: Gal, yGal: Gal, bLen: int, *, msg="GE assertion failed") -> Bin:  # assert 0x00 <= xGal - yGal < 0x02 ** bLen
+    def ASSERT_GE(self, xGal: Gal, yGal: Gal, bLen: int, *, msg: str = "GE assertion failed") -> Bin:  # assert 0x00 <= xGal - yGal < 0x02 ** bLen
         return self.BINARY(self.SUB(xGal, yGal), bLen, msg=msg)
 
-    def ASSERT_LE(self, xGal: Gal, yGal: Gal, bLen: int, *, msg="LE assertion failed") -> Bin:  # assert 0x00 <= yGal - xGal < 0x02 ** bLen
+    def ASSERT_LE(self, xGal: Gal, yGal: Gal, bLen: int, *, msg: str = "LE assertion failed") -> Bin:  # assert 0x00 <= yGal - xGal < 0x02 ** bLen
         return self.BINARY(self.SUB(yGal, xGal), bLen, msg=msg)
 
-    def ASSERT_GT(self, xGal: Gal, yGal: Gal, bLen: int, *, msg="GT assertion failed") -> Bin:  # assert 0x00 < xGal - yGal <= 0x02 ** bLen
+    def ASSERT_GT(self, xGal: Gal, yGal: Gal, bLen: int, *, msg: str = "GT assertion failed") -> Bin:  # assert 0x00 < xGal - yGal <= 0x02 ** bLen
         return self.BINARY(self.SUB(self.SUB(xGal, yGal), 0x01), bLen, msg=msg)
 
-    def ASSERT_LT(self, xGal: Gal, yGal: Gal, bLen: int, *, msg="LT assertion failed") -> Bin:  # assert 0x00 < yGal - xGal <= 0x02 ** bLen
+    def ASSERT_LT(self, xGal: Gal, yGal: Gal, bLen: int, *, msg: str = "LT assertion failed") -> Bin:  # assert 0x00 < yGal - xGal <= 0x02 ** bLen
         return self.BINARY(self.SUB(self.SUB(yGal, xGal), 0x01), bLen, msg=msg)
 
-    def ASSERT_EQZ(self, xGal: Gal, *, msg="EQZ assertion failed") -> None:
+    def ASSERT_EQZ(self, xGal: Gal, *, msg: str = "EQZ assertion failed") -> None:
         self.MKGATE(0x00, 0x00, xGal, msg=msg)
 
-    def ASSERT_NEZ(self, xGal: Gal, *, msg="NEZ assertion failed") -> None:
+    def ASSERT_NEZ(self, xGal: Gal, *, msg: str = "NEZ assertion failed") -> None:
         self.DIV(0x01, xGal, msg=msg)
 
-    def ASSERT_IS_BOOL(self, xGal: Gal, *, msg="IS_BOOL assertion failed") -> None:
+    def ASSERT_IS_BOOL(self, xGal: Gal, *, msg: str = "IS_BOOL assertion failed") -> None:
         # Assert x is a boolean value.
         self.MKGATE(xGal, xGal, xGal, msg=msg)
 
-    def ASSERT_IS_PERM_IMPL(self, lLst: list[Gal], rLst: list[Gal], *, msg="IS_PERM assertion failed") -> None:
+    def ASSERT_IS_PERM_IMPL(self, lLst: list[Gal], rLst: list[Gal], *, msg: str = "IS_PERM assertion failed") -> None:
         # Assert that the two lists are permutations of each other using the Waksman network.
         nLen = max(len(lLst), len(rLst))
         if nLen == 0:
@@ -356,7 +357,7 @@ class Circuit:
         self.ASSERT_IS_PERM_IMPL(luLs, ruLs, msg=msg)
         self.ASSERT_IS_PERM_IMPL(ldLs, rdLs, msg=msg)
 
-    def ASSERT_IS_PERM(self, lLst: list[Gal], rLst: list[Gal], *, msg="IS_PERM assertion failed") -> None:
+    def ASSERT_IS_PERM(self, lLst: list[Gal], rLst: list[Gal], *, msg: str = "IS_PERM assertion failed") -> None:
         # Optimize the IS_PERM assertion by removing the common elements in the two lists before the assertion.
         lMap: dict[tuple[tuple[int, Gal], ...], list[int]] = {}
         rMap: dict[tuple[tuple[int, Gal], ...], list[int]] = {}
@@ -435,7 +436,7 @@ class Circuit:
         zBin = self.BINARY(self.ADD(self.MUL(self.GALOIS(xBin), self.GALOIS(yBin)), self.ADD(self.GALOIS(cBin), self.GALOIS(dBin))), bLen * 2)
         return zBin[:bLen], zBin[bLen:]
 
-    def BINDIVMOD(self, xBin: Bin, yBin: Bin, *, msg="binary divmod error") -> tuple[Bin, Bin]:
+    def BINDIVMOD(self, xBin: Bin, yBin: Bin, *, msg: str = "binary divmod error") -> tuple[Bin, Bin]:
         # Division and modulo operations on binary lists.
         qLen = len(xBin)
         rLen = len(yBin)
@@ -491,25 +492,25 @@ class Circuit:
 
     # assertion operations on binary lists
 
-    def ASSERT_BINGE(self, xBin: Bin, yBin: Bin, *, msg="BINGE assertion failed") -> None:
+    def ASSERT_BINGE(self, xBin: Bin, yBin: Bin, *, msg: str = "BINGE assertion failed") -> None:
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
         assert bLen + 1 < ρ.bit_length()
         self.BINARY(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), bLen, msg=msg)
 
-    def ASSERT_BINLE(self, xBin: Bin, yBin: Bin, *, msg="BINLE assertion failed") -> None:
+    def ASSERT_BINLE(self, xBin: Bin, yBin: Bin, *, msg: str = "BINLE assertion failed") -> None:
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
         assert bLen + 1 < ρ.bit_length()
         self.BINARY(self.SUB(self.GALOIS(yBin), self.GALOIS(xBin)), bLen, msg=msg)
 
-    def ASSERT_BINGT(self, xBin: Bin, yBin: Bin, *, msg="BINGT assertion failed") -> None:
+    def ASSERT_BINGT(self, xBin: Bin, yBin: Bin, *, msg: str = "BINGT assertion failed") -> None:
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
         assert bLen + 1 < ρ.bit_length()
         self.BINARY(self.SUB(self.SUB(self.GALOIS(xBin), self.GALOIS(yBin)), 0x01), bLen, msg=msg)
 
-    def ASSERT_BINLT(self, xBin: Bin, yBin: Bin, *, msg="BINLT assertion failed") -> None:
+    def ASSERT_BINLT(self, xBin: Bin, yBin: Bin, *, msg: str = "BINLT assertion failed") -> None:
         # assert len(xBin) == len(yBin)
         bLen = max(len(xBin), len(yBin))
         assert bLen + 1 < ρ.bit_length()
