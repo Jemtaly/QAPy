@@ -4,17 +4,29 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "QAPy"
-description = "A QAP compiler in Python"
+description = "A zero-knowledge proof system for Quadratic Arithmetic Programs (QAP) with Groth16 implementation."
 version = "0.1.0"
 authors = [
-  { name = "Jemtaly" },
+    { name = "Jemtaly" },
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
+keywords = ["zero-knowledge proof", "zk-SNARK", "cryptography", "QAP", "Groth16"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Developers",
+    "Topic :: Security :: Cryptography",
+]
 requires-python = ">=3.10"
 dependencies = [
-  "dill>=0.4.0",
-  "pymcl @ git+https://github.com/Jemtaly/pymcl.git@v1.0.0",
+    "dill>=0.4.0",
+    "pymcl==1.0.2",
 ]
 
 [project.scripts]
