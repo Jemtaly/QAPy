@@ -22,63 +22,81 @@ qapy-test
 ### Compile
 
 ```text
-usage: qapy compile [-h] [-g GATES] [-f FUNCS] [-n NAMES] program
+usage: qapy compile [-h] [-g GATES] [-f FUNCS] [-n NAMES] file
 
-Compile a program and write the constraints, witness generation functions, and public entry names to files.
+Compile the source code and write the constraints, witness generation functions, and public entry names to files.
 
 positional arguments:
-  program     path of the source code
+  file                  path to the source code
 
 options:
-  -h, --help  show this help message and exit
-  -g GATES    path to write the constraints to (default: a.gates)
-  -f FUNCS    path to write the witness generation functions to (default: a.funcs)
-  -n NAMES    path to write the public entry names to (default: a.names)
+  -h, --help            show this help message and exit
+  -g GATES, --gates GATES
+                        path to write the constraints to (default: a.gates)
+  -f FUNCS, --funcs FUNCS
+                        path to write the witness generation functions to (default: a.funcs)
+  -n NAMES, --names NAMES
+                        path to write the public entry names to (default: a.names)
 ```
 
 ### Setup
 
 ```text
-usage: qapy setup [-h] [-g GATES] [-p PROVE] [-v VERIF]
+usage: qapy setup [-h] [-g GATES] [-p PK] [-v VK] [file]
 
 Set up the parameters for proving and verifying and write them to files.
 
+positional arguments:
+  file                  path to the source code
+
 options:
-  -h, --help  show this help message and exit
-  -g GATES    path to read the constraints from (default: a.gates)
-  -p PROVE    path to write the parameters for proving to (default: a.prove)
-  -v VERIF    path to write the parameters for verifying to (default: a.verif)
+  -h, --help            show this help message and exit
+  -g GATES, --gates GATES
+                        path to read the constraints from (default: a.gates)
+  -p PK, --pk PK        path to write the parameters for proving to (default: a.pk)
+  -v VK, --vk VK        path to write the parameters for verifying to (default: a.vk)
 ```
 
 ### Prove
 
 ```text
-usage: qapy prove [-h] [-g GATES] [-f FUNCS] [-p PROVE] [-a [ARGS ...]] [-P PROOF]
+usage: qapy prove [-h] [-g GATES] [-f FUNCS] [-p PK] [-a [ARGS ...]] [-P PROOF] [file]
 
-Generate a proof and write it to a file.
+Generate a proof and write it to a file
+
+positional arguments:
+  file                  path to the source code
 
 options:
-  -h, --help  show this help message and exit
-  -g GATES    path to read the constraints from (default: a.gates)
-  -f FUNCS    path to read the witness generation functions from (default: a.funcs)
-  -p PROVE    path to read the parameters for proving from (default: a.prove)
+  -h, --help            show this help message and exit
+  -g GATES, --gates GATES
+                        path to read the constraints from (default: a.gates)
+  -f FUNCS, --funcs FUNCS
+                        path to read the witness generation functions from (default: a.funcs)
+  -p PK, --pk PK        path to read the parameters for proving from (default: a.pk)
   -a [ARGS ...], --args [ARGS ...]
-              the arguments to the program as key=value pairs
-  -P PROOF    path to write the proof to (default: a.proof)
+                        the arguments to the program as key=value pairs
+  -P PROOF, --proof PROOF
+                        path to write the proof to (default: a.proof)
 ```
 
 ### Verify
 
 ```text
-usage: qapy verify [-h] [-n NAMES] [-v VERIF] [-P PROOF]
+usage: qapy verify [-h] [-n NAMES] [-v VK] [-P PROOF] [file]
 
-Verify a proof.
+Verify a proof
+
+positional arguments:
+  file                  path to the source code
 
 options:
-  -h, --help  show this help message and exit
-  -n NAMES    path to read the public entry names from (default: a.names)
-  -v VERIF    path to read the parameters for verifying from (default: a.verif)
-  -P PROOF    path to read the proof from (default: a.proof)
+  -h, --help            show this help message and exit
+  -n NAMES, --names NAMES
+                        path to read the public entry names from (default: a.names)
+  -v VK, --vk VK        path to read the parameters for verifying from (default: a.vk)
+  -P PROOF, --proof PROOF
+                        path to read the proof from (default: a.proof)
 ```
 
 There are several sample codes in the `examples` directory. Take `examples/sha256.qapy` as an example, which performs a SHA-256 compression function without padding on one block of input data and outputs the hash value. You can compile, setup, prove, and verify it by running the following commands:
