@@ -30,27 +30,27 @@ def main():
 
     parser_compile = subparsers.add_parser("compile", help="compile the source code", description="Compile the source code and write the constraints, witness generation functions, and public entry names to files.")
     parser_compile.add_argument("file", type=str, help="path to the source code")
-    parser_compile.add_argument("-g", "--gates", type=str, default=None, help="path to write the constraints to (default: a.gates)")
-    parser_compile.add_argument("-f", "--funcs", type=str, default=None, help="path to write the witness generation functions to (default: a.funcs)")
-    parser_compile.add_argument("-n", "--names", type=str, default=None, help="path to write the public entry names to (default: a.names)")
+    parser_compile.add_argument("-g", "--gates", type=str, default=None, help="path to write the constraints to (skipped if not given)")
+    parser_compile.add_argument("-f", "--funcs", type=str, default=None, help="path to write the witness generation functions to (skipped if not given)")
+    parser_compile.add_argument("-n", "--names", type=str, default=None, help="path to write the public entry names to (skipped if not given)")
 
     parser_setup = subparsers.add_parser("setup", help="set up the parameters", description="Set up the parameters for proving and verifying and write them to files.")
     parser_setup.add_argument("file", type=str, nargs="?", help="path to the source code")
-    parser_setup.add_argument("-g", "--gates", type=str, default=None, help="path to read the constraints from (default: a.gates)")
+    parser_setup.add_argument("-g", "--gates", type=str, default=None, help="path to read the constraints from (required if source code is not given)")
     parser_setup.add_argument("-p", "--pk", type=str, default="a.pk", help="path to write the parameters for proving to (default: a.pk)")
     parser_setup.add_argument("-v", "--vk", type=str, default="a.vk", help="path to write the parameters for verifying to (default: a.vk)")
 
     parser_prove = subparsers.add_parser("prove", help="generate a proof", description="Generate a proof and write it to a file")
     parser_prove.add_argument("file", type=str, nargs="?", help="path to the source code")
-    parser_prove.add_argument("-g", "--gates", type=str, default=None, help="path to read the constraints from (default: a.gates)")
-    parser_prove.add_argument("-f", "--funcs", type=str, default=None, help="path to read the witness generation functions from (default: a.funcs)")
+    parser_prove.add_argument("-g", "--gates", type=str, default=None, help="path to read the constraints from (required if source code is not given)")
+    parser_prove.add_argument("-f", "--funcs", type=str, default=None, help="path to read the witness generation functions from (required if source code is not given)")
     parser_prove.add_argument("-p", "--pk", type=str, default="a.pk", help="path to read the parameters for proving from (default: a.pk)")
     parser_prove.add_argument("-a", "--args", action=StoreKVPairs, nargs="*", default={}, help="the arguments to the program as key=value pairs")
     parser_prove.add_argument("-P", "--proof", type=str, default="a.proof", help="path to write the proof to (default: a.proof)")
 
     parser_verify = subparsers.add_parser("verify", help="verify a proof", description="Verify a proof")
     parser_verify.add_argument("file", type=str, nargs="?", help="path to the source code")
-    parser_verify.add_argument("-n", "--names", type=str, default=None, help="path to read the public entry names from (default: a.names)")
+    parser_verify.add_argument("-n", "--names", type=str, default=None, help="path to read the public entry names from (required if source code is not given)")
     parser_verify.add_argument("-v", "--vk", type=str, default="a.vk", help="path to read the parameters for verifying from (default: a.vk)")
     parser_verify.add_argument("-P", "--proof", type=str, default="a.proof", help="path to read the proof from (default: a.proof)")
 
@@ -100,7 +100,7 @@ def main():
                 print("Loading constraints from:", args.gates)
                 wire_count, skeys, gates = dill.loads(gates_file.read())
         else:
-            raise ValueError("--gates must be provided for setup if source code is not given.")
+            raise parser_setup.error("--gates must be provided for setup if source code is not given.")
 
         print("Setting up parameters for proving and verifying...")
         key = setup(wire_count, skeys, gates)
@@ -133,7 +133,7 @@ def main():
                 print("Loading witness generation functions from:", args.funcs)
                 funcs = dill.loads(funcs_file.read())
         else:
-            raise ValueError("--gates and --funcs must be provided for proving if source code is not given.")
+            raise parser_prove.error("--gates and --funcs must be provided for proving if source code is not given.")
 
         with open(args.pk, "rb") as pk_file:
             print("Loading parameters for proving from:", args.pk)
@@ -161,7 +161,7 @@ def main():
                 print("Loading public entry names from:", args.names)
                 names = dill.loads(names_file.read())
         else:
-            raise ValueError("--names must be provided for verifying if source code is not given.")
+            raise parser_verify.error("--names must be provided for verifying if source code is not given.")
 
         with open(args.vk, "rb") as vk_file:
             print("Loading parameters for verifying from:", args.vk)
