@@ -13,9 +13,7 @@ A QAP (Quadratic Arithmetic Program) compiler implemented in Python, used to com
 
 ## Requirements
 
-- Python 3.9+
-- [pymcl](https://github.com/Jemtaly/pymcl) - BN254 pairing-based cryptography library
-- dill - Extended pickling support
+- Python 3.10+
 
 ## Installation
 
